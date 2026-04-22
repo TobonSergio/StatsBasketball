@@ -8,6 +8,8 @@ class Event(Base):
     __tablename__ = "events"
 
     id_event = Column(Integer, primary_key=True, index=True)
+    quarter = Column(Integer, nullable=False, default=1) # Agregado
+    game_time_seconds = Column(Integer, nullable=False, default=0) # Agregado
 
     event_type = Column(
         String(30),
@@ -15,9 +17,10 @@ class Event(Base):
     )
 
     timestamp = Column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False
+    DateTime, 
+    name="event_timestamp", # <--- Agrega esto
+    default=datetime.utcnow, 
+    nullable=False
     )
 
     fk_id_game_player_events = Column(

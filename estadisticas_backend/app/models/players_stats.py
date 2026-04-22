@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Integer, ForeignKey
+from sqlalchemy import Column, Integer, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from app.core.database import Base
-
 
 class PlayerStats(Base):
     __tablename__ = "players_stats"
@@ -22,6 +21,10 @@ class PlayerStats(Base):
     steals = Column(Integer, default=0)
     blocks = Column(Integer, default=0)
     turnovers = Column(Integer, default=0)
+    
+    # Nuevas columnas agregadas
+    fouls = Column(Integer, default=0)
+    minutes_played = Column(Float, default=0.0)
 
     fk_id_game_player = Column(
         Integer,
