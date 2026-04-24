@@ -48,7 +48,8 @@ def create_game_player(
     # 4️⃣ crear relación
     game_player = GamePlayer(
         fk_id_game=game_player_data.fk_id_game,
-        fk_id_player=game_player_data.fk_id_player
+        fk_id_player=game_player_data.fk_id_player,
+        fk_id_team=game_player_data.fk_id_team  
     )
 
     db.add(game_player)

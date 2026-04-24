@@ -55,3 +55,27 @@ def update_stats(
     db: Session = Depends(get_db)
 ):
     return stats_service.update_player_stats(db, gp_id, data)
+
+@router.get(
+    "/game/{game_id}",
+    response_model=list[PlayerStatsResponse]
+)
+def get_game_box_score(
+    game_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene las estadísticas de todos los jugadores que participan en un juego específico.
+    Útil para mostrar la tabla de puntuación completa en el Front.
+    """
+    return stats_service.get_stats_by_game(db, game_id)
+
+@router.post(
+    "/{gp_id}/reset",
+    response_model=PlayerStatsResponse
+)
+def reset_stats(
+    gp_id: int,
+    db: Session = Depends(get_db)
+):
+    return stats_service.reset_player_stats(db, gp_id)

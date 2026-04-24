@@ -61,3 +61,15 @@ def get_stats_by_game_player(db: Session, game_player_id: int):
     return db.query(PlayerStats).filter(
         PlayerStats.fk_id_game_player == game_player_id
     ).first()
+    
+def get_stats_by_game(db: Session, game_id: int):
+    """
+    Trae las estadísticas de todos los jugadores que participan 
+    en un juego específico (ambos equipos).
+    """
+    return (
+        db.query(PlayerStats)
+        .join(GamePlayer)
+        .filter(GamePlayer.fk_id_game == game_id)
+        .all()
+    )

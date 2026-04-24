@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -8,6 +8,12 @@ class Game(Base):
     id_game = Column(Integer, primary_key=True, index=True)
     location = Column(String(100), nullable=False)
     date = Column(DateTime, nullable=False)
+    # Nuevos campos para el estado en vivo
+    current_quarter = Column(Integer, default=1)
+    remaining_time_seconds = Column(Integer, default=600)
+    is_paused = Column(Boolean, default=True)
+    home_score = Column(Integer, default=0)
+    away_score = Column(Integer, default=0)
     
     fk_home_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     fk_away_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
