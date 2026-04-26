@@ -90,6 +90,49 @@ def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: 
     
     db.commit()
     return True
+
+def end_quarter_and_advance(db: Session, game_id: int):
+    # 1. Obtener el juego actual
+    game = db.query(Game).filter(Game.id_game == game_id).first()
+    if not game:
+        return None
+
+    # 2. Identificar a los jugadores en cancha
+    players_on_court = db.query(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.is_on_court == True
+    ).all()
+
+    # 3. Cobrar minutos y resetear marca de tiempo
+    for gp in players_on_court:
+        if gp.last_entry_time_seconds is not None:
+            # Calculamos minutos (Tiempo entrada - 0)
+            minutes_to_add = gp.last_entry_time_seconds / 60.0
+            
+            # Sumar a estadísticas
+            stats = db.query(PlayerStats).filter(
+                PlayerStats.fk_id_game_player == gp.id_game_player
+            ).first()
+            if stats:
+                stats.minutes_played += minutes_to_add
+            
+            # REINICIO: Sigue en cancha para el sgte cuarto, marca 600
+            gp.last_entry_time_seconds = 600 
+
+    # --- 🚀 EL PASO QUE TE FALTABA ---
+    game.current_quarter += 1
+    # También reseteamos el reloj visual del juego a 600 para el nuevo cuarto
+    game.remaining_time_seconds = 600
+    
+    db.commit()
+    db.refresh(game)
+    
+    return {
+        "status": "success",
+        "message": f"Cuarto finalizado. Iniciando cuarto {game.current_quarter}",
+        "new_quarter": game.current_quarter,
+        "players_synced": len(players_on_court)
+    }
 def create_game(db: Session, game_data: GameCreate) -> Game:
     # Ahora incluimos los valores por defecto para el inicio del partido
     game = Game(
