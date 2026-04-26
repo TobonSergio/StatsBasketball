@@ -29,6 +29,14 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="GamePlayer relationship not found."
         )
+    
+    # --- 🛡️ EL NUEVO CANDADO DE SEGURIDAD ---
+    if not game_player.is_on_court:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Acción denegada: El jugador no está actualmente en cancha."
+        )
+    # ----------------------------------------
 
     # 2️⃣ Crear el registro del evento
     db_event = Event(
@@ -60,13 +68,26 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
             stats.points_three_made += 1
             stats.points_three_attempts += 1
             points_to_add = 3
+        elif etype == "three_missed":
+            stats.points_three_attempts += 1
         elif etype == "free_made":
             stats.free_throw_made += 1
             stats.free_throw_attempts += 1
             points_to_add = 1
-        # ... (puedes mantener el resto de tus elif para rebotes, faltas, etc.)
+        elif etype == "free_missed":
+            stats.free_throw_attempts += 1
         elif etype == "foul":
             stats.fouls += 1
+        elif etype == "assist":
+            stats.assists += 1
+        elif etype == "block":
+            stats.blocks +=1
+        elif etype == "steal":
+            stats.steals +=1
+        elif etype == "rebound":
+            stats.rebounds +=1
+        elif etype == "turnover":
+            stats.turnovers +=1
 
     # 4️⃣ NUEVO: Actualizar el Marcador Global del Juego
     if points_to_add > 0:
@@ -132,6 +153,14 @@ def delete_event(db: Session, event_id: int) -> bool:
             stats.fouls -= 1
         elif etype == "assist":
             stats.assists -= 1
+        elif etype == "block":
+            stats.blocks -=1
+        elif etype == "steal":
+            stats.steals -=1
+        elif etype == "rebound":
+            stats.rebounds -=1
+        elif etype == "turnover":
+            stats.rebounds -=1
         # ... (repite para rebotes, bloqueos, etc.)
 
     # 4. Restar del marcador global del juego

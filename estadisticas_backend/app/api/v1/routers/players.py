@@ -82,3 +82,14 @@ def delete_player(player_id:int, db:Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Player not found"
         )
+        
+@router.get("/{player_id}/career-stats")
+def get_career_summary(
+    player_id: int, 
+    db: Session = Depends(get_db)
+):
+    """
+    Muestra los totales de toda la carrera del jugador.
+    Ideal para el 'Perfil del Jugador' en el Front.
+    """
+    return players_service.get_player_career_stats(db, player_id)

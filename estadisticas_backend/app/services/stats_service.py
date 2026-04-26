@@ -73,3 +73,4 @@ def get_stats_by_game(db: Session, game_id: int):
         .filter(GamePlayer.fk_id_game == game_id)
         .all()
     )
+

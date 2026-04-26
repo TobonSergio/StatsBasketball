@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -12,6 +12,10 @@ class GamePlayer(Base):
     # AGREGA ESTA LÍNEA:
     fk_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
 
+    # NUEVO: Este es el interruptor para saber quién está jugando
+    is_on_court = Column(Boolean, default=False)
+    # AGREGAR ESTA LÍNEA:
+    last_entry_time_seconds = Column(Integer, nullable=True)
     # Relaciones
     game = relationship("Game", back_populates="players")
     player = relationship("Player", back_populates="games")
