@@ -1,10 +1,12 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.games import Game
-<<<<<<< HEAD
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
-
+from app.models.games_players import GamePlayer
+from app.models.teams import Team
+from app.models.players import Player
+from app.schemas.games import GameCreate, GameResponse, GameUpdate, GameWithPlayersCreate, GameWithPlayersResponse
 from app.models.games_players import GamePlayer # Asegúrate de importar esto arriba
 from app.models.players_stats import PlayerStats
 
@@ -88,13 +90,6 @@ def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: 
     
     db.commit()
     return True
-=======
-from app.models.games_players import GamePlayer
-from app.models.teams import Team
-from app.models.players import Player
-from app.schemas.games import GameCreate, GameResponse, GameUpdate, GameWithPlayersCreate, GameWithPlayersResponse
->>>>>>> 91481b75e9b471a861b4c00c4ee0214f2c12a38a
-
 def create_game(db: Session, game_data: GameCreate) -> Game:
     # Ahora incluimos los valores por defecto para el inicio del partido
     game = Game(
@@ -157,8 +152,6 @@ def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, qua
         db.refresh(game)
     return game
 
-<<<<<<< HEAD
-# app/services/games_services.py
 
 def get_current_lineup(db: Session, game_id: int, team_id: int):
     """
@@ -174,7 +167,7 @@ def get_current_lineup(db: Session, game_id: int, team_id: int):
         )
         .all()
     )
-=======
+
 def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> GameWithPlayersResponse:
     """
     Crea un juego y asigna todos los players en una sola transacción.
@@ -329,4 +322,3 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         players=players_info
     )
 
->>>>>>> 91481b75e9b471a861b4c00c4ee0214f2c12a38a

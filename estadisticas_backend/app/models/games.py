@@ -31,3 +31,4 @@ class Game(Base):
     )
     
     players = relationship("GamePlayer", back_populates="game")
+
