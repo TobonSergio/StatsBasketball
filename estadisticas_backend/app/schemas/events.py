@@ -20,12 +20,9 @@ class EventType(str, Enum):
 class EventBase(BaseModel):
     event_type: EventType
     fk_id_game_player_events: int
-    # Agregamos estos dos porque son obligatorios (NOT NULL) en tu DB
-    quarter: int = 1
     game_time_seconds: int = 0
 
 class EventCreate(EventBase):
-    # En el POST, el timestamp suele ser opcional porque el servidor lo genera
     timestamp: Optional[datetime] = None
 
 class EventResponse(BaseModel): # Cambiamos a BaseModel para mapear bien los campos de salida

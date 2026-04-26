@@ -9,6 +9,8 @@ from app.models.players import Player
 from app.schemas.games import GameCreate, GameResponse, GameUpdate, GameWithPlayersCreate, GameWithPlayersResponse
 from app.models.games_players import GamePlayer # Asegúrate de importar esto arriba
 from app.models.players_stats import PlayerStats
+from app.models.events import Event # Asegúrate de importar Event
+
 
 def swap_players(db: Session, gp_out_id: int, gp_in_id: int, current_game_time: int):
     """
@@ -365,3 +367,42 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         players=players_info
     )
 
+def get_live_game_status(db: Session, game_id: int):
+    # 1. Obtenemos los datos básicos del juego
+    game = db.query(Game).filter(Game.id_game == game_id).first()
+    if not game:
+        return None
+
+    # 2. Contamos faltas del equipo Local en el cuarto actual
+    home_fouls = db.query(Event).join(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.fk_id_team == game.fk_home_id_team,
+        Event.event_type == "foul",
+        Event.quarter == game.current_quarter
+    ).count()
+
+    # 3. Contamos faltas del equipo Visitante en el cuarto actual
+    away_fouls = db.query(Event).join(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.fk_id_team == game.fk_away_id_team,
+        Event.event_type == "foul",
+        Event.quarter == game.current_quarter
+    ).count()
+
+    # 4. Construimos la respuesta "en vivo"
+    return {
+        "id_game": game.id_game,
+        "current_quarter": game.current_quarter,
+        "remaining_time_seconds": game.remaining_time_seconds,
+        "score": {
+            "home": game.home_score,
+            "away": game.away_score
+        },
+        "fouls": {
+            "home": home_fouls,
+            "away": away_fouls,
+            "home_bonus": home_fouls >= 5, # El bonus suele ser a la 5ta falta
+            "away_bonus": away_fouls >= 5
+        },
+        "is_paused": game.is_paused
+    }

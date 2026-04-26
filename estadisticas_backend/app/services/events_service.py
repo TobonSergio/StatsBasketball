@@ -37,12 +37,16 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
             detail=f"Acción denegada: El jugador no está actualmente en cancha."
         )
     # ----------------------------------------
-
+    # --- 🆕 AUTO-DETECCIÓN DEL CUARTO Y JUEGO ---
+    # Buscamos el juego para saber en qué cuarto va de verdad
+    game = db.query(Game).filter(Game.id_game == game_player.fk_id_game).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Juego no encontrado.")
     # 2️⃣ Crear el registro del evento
     db_event = Event(
         event_type=event_data.event_type,
         fk_id_game_player_events=event_data.fk_id_game_player_events,
-        quarter=event_data.quarter,
+        quarter=game.current_quarter, # <--- AQUÍ: Usamos el dato de la DB, no del request
         game_time_seconds=event_data.game_time_seconds,
         timestamp=event_data.timestamp or datetime.utcnow() 
     )

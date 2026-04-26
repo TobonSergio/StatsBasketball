@@ -124,3 +124,14 @@ def end_game_quarter(game_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Juego no encontrado")
         
     return result
+
+@router.get("/{game_id}/live-status")
+def read_live_status(game_id: int, db: Session = Depends(get_db)):
+    """
+    Retorna el estado completo del partido en tiempo real, 
+    incluyendo el marcador y las faltas acumuladas por cuarto.
+    """
+    status = games_service.get_live_game_status(db, game_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Juego no encontrado")
+    return status
