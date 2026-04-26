@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 
 class GameBase(BaseModel):
     location: str
@@ -34,3 +34,13 @@ class GameResponse(GameBase):
 
     class Config:
         from_attributes = True
+
+class GameWithPlayersCreate(BaseModel):
+    location: str
+    date: datetime
+    home_team: int
+    away_team: int
+    players: Dict[str, List[int]]  # {"home": [1,2,3], "away": [4,5,6]}
+
+class GameWithPlayersResponse(GameResponse):
+    players: List[dict]  # Lista de game_players con info básica
