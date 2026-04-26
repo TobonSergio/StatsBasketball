@@ -17,7 +17,10 @@ def get_players(db:Session):
     return db.query(Player).all()
 
 def get_player_by_id(db:Session, player_id:int):
-    return db.query(Player).filter(Player.id_player == player_id).first()   
+    return db.query(Player).filter(Player.id_player == player_id).first()
+
+def get_players_by_team(db:Session, team_id:int):
+    return db.query(Player).filter(Player.fk_id_team == team_id).all()
 
 def update_player(db: Session, player_id: int, player_data: PlayerUpdate):
     player = get_player_by_id(db, player_id)
