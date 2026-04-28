@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-
 from app.core.database import SessionLocal
 from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse
 from app.services import games_service
-from app.schemas.games_players import GamePlayerResponse 
+from app.schemas.games_players import GamePlayerResponse
+from sqlalchemy.orm import Session
+
 
 router = APIRouter(
     prefix="/games",
@@ -123,3 +124,25 @@ def read_current_lineup(game_id: int, team_id: int, db: Session = Depends(get_db
     lineup = games_service.get_current_lineup(db, game_id, team_id)
     # Es normal que retorne lista vacía si no hay jugadores en cancha
     return lineup
+# ... (todo tu código anterior igual)
+
+@router.post("/{game_id}/end-quarter")
+def end_game_quarter(game_id: int, db: Session = Depends(get_db)):
+    # Llama a la función que SÍ aumenta el cuarto
+    result = games_service.end_quarter_and_advance(db, game_id)
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Juego no encontrado")
+        
+    return result
+
+@router.get("/{game_id}/live-status")
+def read_live_status(game_id: int, db: Session = Depends(get_db)):
+    """
+    Retorna el estado completo del partido en tiempo real, 
+    incluyendo el marcador y las faltas acumuladas por cuarto.
+    """
+    status = games_service.get_live_game_status(db, game_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Juego no encontrado")
+    return status

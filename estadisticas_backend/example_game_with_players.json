@@ -1,0 +1,55 @@
+# Ejemplo de uso del nuevo endpoint para crear juegos con players
+# POST /api/v1/games/with-players
+# Content-Type: application/json
+
+# VALIDACIONES IMPLEMENTADAS:
+# - Cada equipo debe tener entre 5 y 12 jugadores
+# - Los equipos deben existir en la base de datos
+# - Los jugadores deben existir y pertenecer al equipo correcto
+# - No se puede usar el mismo equipo como local y visitante
+# - Los IDs de jugadores no se validan entre equipos (frontend se encarga)
+
+{
+  "location": "Estadio Principal",
+  "date": "2024-12-25T15:00:00",
+  "home_team": 1,
+  "away_team": 2,
+  "players": {
+    "home": [1, 2, 3, 4, 5],      // Mínimo 5, máximo 12
+    "away": [6, 7, 8, 9, 10]      // Mínimo 5, máximo 12
+  }
+}
+
+# EJEMPLOS DE ERRORES:
+# - Menos de 5 jugadores: {"detail": "Home team must have between 5 and 12 players. Current: 3"}
+# - Más de 12 jugadores: {"detail": "Away team must have between 5 and 12 players. Current: 15"}
+# - Equipo no existe: {"detail": "Home team with id 999 not found"}
+# - Jugador no pertenece al equipo: {"detail": "Player 5 does not belong to home team 1"}
+# - Mismo equipo local y visitante: {"detail": "Home team and away team cannot be the same"}
+
+# Respuesta esperada:
+{
+  "id_game": 123,
+  "location": "Estadio Principal",
+  "date": "2024-12-25T15:00:00",
+  "fk_home_id_team": 1,
+  "fk_away_id_team": 2,
+  "current_quarter": 1,
+  "remaining_time_seconds": 600,
+  "is_paused": true,
+  "home_score": 0,
+  "away_score": 0,
+  "players": [
+    {
+      "id_game_player": 1,
+      "fk_id_player": 1,
+      "fk_id_team": 1
+    },
+    {
+      "id_game_player": 2,
+      "fk_id_player": 2,
+      "fk_id_team": 1
+    },
+    // ... más players
+  ]
+}
