@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Entornos virtuales
+venv/
+.env/
+.venv/
+
+# Archivos de entorno
+.env
+.env.*
+
+# Logs
+*.log
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Archivos de testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Archivos temporales
+*.swp
+*.swo
+
+# Build / dist
+build/
+dist/
+*.egg-info/

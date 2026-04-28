@@ -51,6 +51,21 @@ def get_player(player_id:int, db:Session=Depends(get_db)):
         
     return player
 
+@router.get(
+    "/team/{team_id}",
+    response_model=List[PlayerResponse]
+)
+def get_players_by_team(team_id:int, db:Session=Depends(get_db)):
+    players = players_service.get_players_by_team(db, team_id)
+    
+    if not players:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No players found for this team"
+        )
+    
+    return players
+
 @router.put(
     "/{player_id}",
     response_model=PlayerResponse

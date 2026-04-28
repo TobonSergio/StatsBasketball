@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import SessionLocal
-from app.schemas.games import GameCreate, GameUpdate, GameResponse
+from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse
 from app.services import games_service
 from app.schemas.games_players import GamePlayerResponse 
 
@@ -30,6 +30,17 @@ def create_game(
     db: Session = Depends(get_db)
 ):
     return games_service.create_game(db,game)
+
+@router.post(
+    "/with-players",
+    response_model=GameWithPlayersResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_game_with_players(
+    game_data: GameWithPlayersCreate,
+    db: Session = Depends(get_db)
+):
+    return games_service.create_game_with_players(db, game_data)
 
 @router.get(
     "/",
