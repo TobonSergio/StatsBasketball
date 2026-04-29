@@ -55,33 +55,56 @@ def delete_player(db:Session, player_id:int) -> bool:
     return True
     
 def get_player_career_stats(db: Session, player_id: int):
-    # Sumamos cada columna del modelo PlayerStats vinculada a este player_id
     stats = db.query(
         func.count(PlayerStats.id_player_stats).label("games_played"),
-        func.sum(PlayerStats.points_two_made).label("total_two_made"),
-        func.sum(PlayerStats.points_three_made).label("total_three_made"),
-        func.sum(PlayerStats.free_throw_made).label("total_free_throws"),
-        func.sum(PlayerStats.rebounds).label("total_rebounds"),
-        func.sum(PlayerStats.assists).label("total_assists"),
-        func.sum(PlayerStats.fouls).label("total_fouls"), # Tarea #3 lista
-        func.sum(PlayerStats.steals).label("total_steals"),
-        func.sum(PlayerStats.blocks).label("total_blocks")
-    ).join(GamePlayer).filter(GamePlayer.fk_id_player == player_id).first()
+        func.sum(PlayerStats.points_two_made).label("p2_made"),
+        func.sum(PlayerStats.points_two_attempts).label("p2_att"),
+        func.sum(PlayerStats.points_three_made).label("p3_made"),
+        func.sum(PlayerStats.points_three_attempts).label("p3_att"),
+        func.sum(PlayerStats.free_throw_made).label("ft_made"),
+        func.sum(PlayerStats.free_throw_attempts).label("ft_att"),
+        func.sum(PlayerStats.rebounds).label("reb"),
+        func.sum(PlayerStats.assists).label("ast"),
+        func.sum(PlayerStats.steals).label("stl"),
+        func.sum(PlayerStats.blocks).label("blk"),
+        func.sum(PlayerStats.fouls).label("fouls"),
+        func.sum(PlayerStats.turnovers).label("tov"),
+        func.sum(PlayerStats.minutes_played).label("min")
+    ).join(GamePlayer, PlayerStats.fk_id_game_player == GamePlayer.id_game_player
+    ).filter(GamePlayer.fk_id_player == player_id).first()
 
-    # Si no hay datos, devolvemos un resumen en cero
     if not stats or stats.games_played == 0:
-        return {"msg": "No stats found for this player", "player_id": player_id}
+        return {"msg": "No stats found"}
 
-    # Calculamos el total de puntos: (2*dobles) + (3*triples) + (1*libres)
-    total_points = (stats.total_two_made * 2) + (stats.total_three_made * 3) + stats.total_free_throws
+    # Cálculo de puntos totales
+    total_pts = (int(stats.p2_made or 0) * 2) + (int(stats.p3_made or 0) * 3) + int(stats.ft_made or 0)
 
     return {
         "player_id": player_id,
         "games_played": stats.games_played,
-        "total_points": total_points,
-        "total_three_made": stats.total_three_made,
-        "total_rebounds": stats.total_rebounds,
-        "total_assists": stats.total_assists,
-        "total_fouls": stats.total_fouls,
-        "avg_points_per_game": round(total_points / stats.games_played, 2)
+        "total_points": total_pts,
+        "minutes": round(float(stats.min or 0), 1),
+        "rebounds": int(stats.reb or 0),
+        "assists": int(stats.ast or 0),
+        "steals": int(stats.stl or 0),
+        "blocks": int(stats.blk or 0),
+        "fouls": int(stats.fouls or 0),
+        "turnovers": int(stats.tov or 0),
+        "p2_made": int(stats.p2_made or 0),
+        "p2_att": int(stats.p2_att or 0),
+        "p3_made": int(stats.p3_made or 0),
+        "p3_att": int(stats.p3_att or 0),
+        "ft_made": int(stats.ft_made or 0),
+        "ft_att": int(stats.ft_att or 0),
+        "avg_points": round(total_pts / stats.games_played, 2)
     }
+    
+def get_player_game_history(db: Session, player_id: int, limit: int = 10):
+    return (
+        db.query(PlayerStats)
+        .join(GamePlayer, PlayerStats.fk_id_game_player == GamePlayer.id_game_player)
+        .filter(GamePlayer.fk_id_player == player_id)
+        .order_by(PlayerStats.id_player_stats.desc())
+        .limit(limit)
+        .all()
+    )

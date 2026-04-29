@@ -108,3 +108,10 @@ def get_career_summary(
     Ideal para el 'Perfil del Jugador' en el Front.
     """
     return players_service.get_player_career_stats(db, player_id)
+
+@router.get("/{player_id}/stats-history")
+def get_player_stats_history(player_id: int, limit: int = 10, db: Session = Depends(get_db)):
+    history = players_service.get_player_game_history(db, player_id, limit)
+    if not history:
+        return []
+    return history
