@@ -215,31 +215,10 @@ def get_current_lineup(db: Session, game_id: int, team_id: int):
 
 def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> GameWithPlayersResponse:
     """
-    Crea un juego y asigna todos los players en una sola transacción.
-    Incluye validaciones exhaustivas para asegurar integridad de datos.
-
-    VALIDACIONES IMPLEMENTADAS:
-    - Equipos existen en BD
-    - Equipos local y visitante son diferentes
-    - Cada equipo tiene entre 5 y 12 jugadores
-    - Todos los jugadores existen en BD
-    - Jugadores pertenecen al equipo correcto
-    - No se valida duplicación entre equipos (maneja frontend)
-
-    Request esperado:
-    {
-      "location": "Estadio Principal",
-      "date": "2024-12-25T15:00:00",
-      "home_team": 1,
-      "away_team": 2,
-      "players": {
-        "home": [1,2,3,4,5],
-        "away": [6,7,8,9,10]
-      }
-    }
+    Crea un juego, asigna todos los jugadores e inicializa sus estadísticas en 0 
+    en una sola transacción atómica.
     """
-    # VALIDACIONES
-    # 1. Validar que los equipos existan
+    # --- 1. VALIDACIONES DE EQUIPOS ---
     home_team = db.query(Team).filter(Team.id_team == game_data.home_team).first()
     if not home_team:
         raise HTTPException(
@@ -254,18 +233,16 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
             detail=f"Away team with id {game_data.away_team} not found"
         )
 
-    # 2. Validar que no sea el mismo equipo
     if game_data.home_team == game_data.away_team:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Home team and away team cannot be the same"
         )
 
-    # 3. Obtener listas de players
+    # --- 2. VALIDACIONES DE JUGADORES (CANTIDAD) ---
     home_players = game_data.players.get("home", [])
     away_players = game_data.players.get("away", [])
 
-    # 4. Validar cantidad de jugadores por equipo (5-12)
     if len(home_players) < 5 or len(home_players) > 12:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -278,7 +255,7 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
             detail=f"Away team must have between 5 and 12 players. Current: {len(away_players)}"
         )
 
-    # 5. Validar que todos los players existan y pertenezcan al equipo correcto
+    # --- 3. VALIDACIONES DE EXISTENCIA Y PERTENENCIA ---
     all_player_ids = home_players + away_players
     players = db.query(Player).filter(Player.id_player.in_(all_player_ids)).all()
 
@@ -290,7 +267,6 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
             detail=f"Players not found: {list(missing_ids)}"
         )
 
-    # 6. Validar que los players pertenezcan a sus equipos respectivos
     players_by_id = {p.id_player: p for p in players}
 
     for player_id in home_players:
@@ -307,7 +283,7 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
                 detail=f"Player {player_id} does not belong to away team {game_data.away_team}"
             )
 
-    # Crear el juego
+    # --- 4. CREACIÓN DEL JUEGO ---
     game = Game(
         location=game_data.location,
         date=game_data.date,
@@ -320,38 +296,60 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         away_score=0
     )
     db.add(game)
-    db.flush()  # Obtener el ID del juego sin hacer commit aún
+    db.flush()  # Obtenemos id_game
 
-    # Crear los game_players para el equipo local
-    for player_id in game_data.players.get("home", []):
-        game_player = GamePlayer(
-            fk_id_game=game.id_game,
-            fk_id_player=player_id,
-            fk_id_team=game_data.home_team
+    # --- 5. CREACIÓN DE GAME_PLAYERS Y PLAYER_STATS (LOCAL Y VISITANTE) ---
+    def process_team_players(player_ids, team_id):
+        for player_id in player_ids:
+            # Crear el registro de participación
+            game_player = GamePlayer(
+                fk_id_game=game.id_game,
+                fk_id_player=player_id,
+                fk_id_team=team_id,
+                is_on_court=False
+            )
+            db.add(game_player)
+            db.flush()  # Genera id_game_player para la estadística
+
+            # Inicializar estadísticas en cero
+            new_stats = PlayerStats(
+                fk_id_game_player=game_player.id_game_player,
+                points_two_made=0,
+                points_two_attempts=0,
+                points_three_made=0,
+                points_three_attempts=0,
+                free_throw_made=0,
+                free_throw_attempts=0,
+                rebounds=0,
+                assists=0,
+                steals=0,
+                blocks=0,
+                turnovers=0,
+                fouls=0,
+                minutes_played=0.0
+            )
+            db.add(new_stats)
+
+    process_team_players(home_players, game_data.home_team)
+    process_team_players(away_players, game_data.away_team)
+
+    # --- 6. FINALIZAR TRANSACCIÓN ---
+    try:
+        db.commit()
+        db.refresh(game)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating game and initializing stats: {str(e)}"
         )
-        db.add(game_player)
 
-    # Crear los game_players para el equipo visitante
-    for player_id in game_data.players.get("away", []):
-        game_player = GamePlayer(
-            fk_id_game=game.id_game,
-            fk_id_player=player_id,
-            fk_id_team=game_data.away_team
-        )
-        db.add(game_player)
-
-    # Hacer commit de todo
-    db.commit()
-    db.refresh(game)
-
-    # Preparar respuesta con players
-    players_info = []
-    for gp in game.players:
-        players_info.append({
-            "id_game_player": gp.id_game_player,
-            "fk_id_player": gp.fk_id_player,
-            "fk_id_team": gp.fk_id_team
-        })
+    # Preparar respuesta
+    players_info = [{
+        "id_game_player": gp.id_game_player,
+        "fk_id_player": gp.fk_id_player,
+        "fk_id_team": gp.fk_id_team
+    } for gp in game.players]
 
     return GameWithPlayersResponse(
         id_game=game.id_game,
