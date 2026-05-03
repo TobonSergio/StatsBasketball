@@ -11,11 +11,7 @@ from app.api.v1.routers import stats
 
 app = FastAPI(title="Basketball Stats API")
 
-app.include_router(teams.router)
-app.include_router(players.router)
-app.include_router(games.router)
-app.include_router(games_players.router)
-
+# 1. CORS PRIMERO
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,6 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 2. ROUTERS
+app.include_router(teams.router)
+app.include_router(players.router)
+app.include_router(games.router)
+app.include_router(games_players.router)
 app.include_router(events.router)
 app.include_router(stats.router)
-
