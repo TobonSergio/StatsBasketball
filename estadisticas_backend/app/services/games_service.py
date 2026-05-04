@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
@@ -10,6 +10,7 @@ from app.schemas.games import GameCreate, GameResponse, GameUpdate, GameWithPlay
 from app.models.games_players import GamePlayer # Asegúrate de importar esto arriba
 from app.models.players_stats import PlayerStats
 from app.models.events import Event # Asegúrate de importar Event
+from app.models.games import Game # Asegúrate de que la ruta sea la correcta en tu proyecto
 
 
 def swap_players(db: Session, gp_out_id: int, gp_in_id: int, current_game_time: int):
@@ -156,8 +157,16 @@ def create_game(db: Session, game_data: GameCreate) -> Game:
 def get_games(db:Session):
     return db.query(Game).all()
 
-def get_game_by_id(db:Session, game_id:int):
-    return db.query(Game).filter(Game.id_game == game_id).first()
+
+
+def get_game_by_id(db: Session, game_id: int):
+    return db.query(Game)\
+        .options(
+            joinedload(Game.home_team), # <--- Carga los datos del equipo local
+            joinedload(Game.away_team)  # <--- Carga los datos del equipo visitante
+        )\
+        .filter(Game.id_game == game_id)\
+        .first()
 
 def update_game(db: Session, game_id: int, game_data: GameUpdate):
     game = get_game_by_id(db, game_id)
