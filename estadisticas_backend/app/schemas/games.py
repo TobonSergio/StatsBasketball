@@ -29,8 +29,19 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
     home_score: Optional[int] = None
     away_score: Optional[int] = None
 
+# Agrega este esquema simple arriba de GameResponse
+class TeamSimple(BaseModel):
+    id_team: int
+    name: str
+    class Config:
+        from_attributes = True
+
+# Modifica tu GameResponse para incluir los objetos
 class GameResponse(GameBase):
     id_game: int
+    # Estos campos permitirán que el nombre del equipo viaje al Front
+    home_team: Optional[TeamSimple] = None
+    away_team: Optional[TeamSimple] = None
 
     class Config:
         from_attributes = True
