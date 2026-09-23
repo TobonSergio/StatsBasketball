@@ -1,11 +1,16 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import NullPool
 
-# 1. Cargar las variables del archivo .env
-load_dotenv()
+# 1. Cargar las variables del archivo .env de forma robusta
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+else:
+    load_dotenv()
 
 raw_db_url = os.getenv("DATABASE_URL")
 
@@ -31,3 +36,11 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+# Dependencia compartida para obtener la sesión de base de datos
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
