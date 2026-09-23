@@ -1,5 +1,8 @@
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.teams import Team
+from app.models.players import Player
+from app.models.games import Game
 from app.schemas.teams import TeamCreate, TeamUpdate
 
 
@@ -40,6 +43,15 @@ def delete_team(db: Session, team_id: int) -> bool:
 
     if not team:
         return False
+        
+    has_players = db.query(Player).filter(Player.fk_id_team == team_id).first()
+    has_games = db.query(Game).filter((Game.fk_home_id_team == team_id) | (Game.fk_away_id_team == team_id)).first()
+    
+    if has_players or has_games:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete team. It has associated players or games."
+        )
 
     db.delete(team)
     db.commit()

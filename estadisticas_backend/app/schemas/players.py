@@ -3,7 +3,7 @@ from typing import Optional
 
 class PlayerBase(BaseModel):
     name: str
-    number: int
+    number: str
     fk_id_team: int
     
 class PlayerCreate(PlayerBase):
@@ -11,7 +11,7 @@ class PlayerCreate(PlayerBase):
 
 class PlayerUpdate(BaseModel):
     name: Optional[str] = None
-    number: Optional[int] = None
+    number: Optional[str] = None
     fk_id_team: Optional[int] = None
     
 class PlayerResponse(PlayerBase):
