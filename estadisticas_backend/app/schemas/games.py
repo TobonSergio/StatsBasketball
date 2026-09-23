@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from datetime import datetime
+from pydantic import BaseModel, computed_field
+from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
 class GameBase(BaseModel):
@@ -12,6 +12,7 @@ class GameBase(BaseModel):
     remaining_time_seconds: Optional[int] = 600
     is_paused: Optional[bool] = True
     home_score: Optional[int] = 0
+    status: Optional[str] = "PROGRAMADO"
     away_score: Optional[int] = 0
 
 class GameCreate(GameBase):
@@ -44,6 +45,7 @@ class GameResponse(GameBase):
     away_team: Optional[TeamSimple] = None
 
     class Config:
+
         from_attributes = True
 
 class GameWithPlayersCreate(BaseModel):
@@ -55,3 +57,8 @@ class GameWithPlayersCreate(BaseModel):
 
 class GameWithPlayersResponse(GameResponse):
     players: List[dict]  # Lista de game_players con info básica
+
+class SubstitutionRequest(BaseModel):
+    player_out_id: int
+    player_in_id: int
+    current_game_time: int

@@ -1,16 +1,19 @@
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
+
 from app.models.games import Game
-from app.schemas.games import GameCreate, GameResponse, GameUpdate
-from fastapi import HTTPException
-from app.models.games_players import GamePlayer
 from app.models.teams import Team
 from app.models.players import Player
-from app.schemas.games import GameCreate, GameResponse, GameUpdate, GameWithPlayersCreate, GameWithPlayersResponse
-from app.models.games_players import GamePlayer # Asegúrate de importar esto arriba
+from app.models.games_players import GamePlayer
 from app.models.players_stats import PlayerStats
-from app.models.events import Event # Asegúrate de importar Event
-from app.models.games import Game # Asegúrate de que la ruta sea la correcta en tu proyecto
+from app.models.events import Event
+from app.schemas.games import (
+    GameCreate,
+    GameResponse,
+    GameUpdate,
+    GameWithPlayersCreate,
+    GameWithPlayersResponse
+)
 
 
 def swap_players(db: Session, gp_out_id: int, gp_in_id: int, current_game_time: int):
@@ -122,19 +125,65 @@ def end_quarter_and_advance(db: Session, game_id: int):
             # REINICIO: Sigue en cancha para el sgte cuarto, marca 600
             gp.last_entry_time_seconds = 600 
 
-    # --- 🚀 EL PASO QUE TE FALTABA ---
+    # --- 🚀 LÓGICA DE TRANSICIÓN DE CUARTOS Y ESTADO ---
+    # Avanzar al siguiente cuarto (incluye tiempo extra Q5, Q6, etc.)
     game.current_quarter += 1
-    # También reseteamos el reloj visual del juego a 600 para el nuevo cuarto
     game.remaining_time_seconds = 600
+    message = f"Cuarto finalizado. Iniciando cuarto {game.current_quarter}"
+    new_quarter = game.current_quarter
     
     db.commit()
     db.refresh(game)
     
     return {
         "status": "success",
-        "message": f"Cuarto finalizado. Iniciando cuarto {game.current_quarter}",
+        "message": message,
+        "new_quarter": new_quarter,
+        "players_synced": len(players_on_court),
+        "game_status": game.status
+    }
+
+def set_overtime(db: Session, game_id: int, overtime_seconds: int = 300):
+    """
+    Configura el tiempo extra para un partido que terminó Q4 empatado.
+    Avanza a Q5 con el tiempo especificado (default 5 minutos = 300 segundos).
+    """
+    game = db.query(Game).filter(Game.id_game == game_id).first()
+    if not game:
+        return None
+    
+    # Solo permitir tiempo extra si estamos en Q4 o después
+    if game.current_quarter < 4:
+        raise HTTPException(
+            status_code=400, 
+            detail="No se puede agregar tiempo extra antes del cuarto 4"
+        )
+    
+    # Avanzar al siguiente cuarto (Q5, Q6, etc.)
+    game.current_quarter += 1
+    game.remaining_time_seconds = overtime_seconds
+    game.is_paused = True  # Pausado para que el árbitro decida cuándo iniciar
+    game.status = "EN_PROGRESO"
+    
+    # Resetear el tiempo de entrada de los jugadores en cancha
+    players_on_court = db.query(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.is_on_court == True
+    ).all()
+    
+    for gp in players_on_court:
+        gp.last_entry_time_seconds = overtime_seconds
+    
+    db.commit()
+    db.refresh(game)
+    
+    return {
+        "status": "success",
+        "message": f"Tiempo extra iniciado: {overtime_seconds // 60} minutos",
         "new_quarter": game.current_quarter,
-        "players_synced": len(players_on_court)
+        "remaining_time_seconds": game.remaining_time_seconds,
+        "players_synced": len(players_on_court),
+        "game_status": game.status
     }
 def create_game(db: Session, game_data: GameCreate) -> Game:
     # Ahora incluimos los valores por defecto para el inicio del partido
@@ -147,7 +196,8 @@ def create_game(db: Session, game_data: GameCreate) -> Game:
         remaining_time_seconds=600, # 10 min por defecto
         is_paused=True,
         home_score=0,
-        away_score=0
+        away_score=0,
+        status="PROGRAMADO"
     )
     db.add(game)
     db.commit()
@@ -155,7 +205,30 @@ def create_game(db: Session, game_data: GameCreate) -> Game:
     return game
 
 def get_games(db:Session):
-    return db.query(Game).all()
+    games = db.query(Game).all()
+    
+    # Calcular status para juegos legacy con status NULL y persistir
+    needs_commit = False
+    for game in games:
+        if game.status is None:
+            from datetime import datetime
+            now = datetime.now()
+            
+            if game.date and game.date.date() < now.date():
+                # Fecha pasada sin puntos = EXPIRADO
+                game.status = "EXPIRADO"
+            elif (game.home_score and game.home_score > 0) or (game.away_score and game.away_score > 0) or (game.current_quarter and game.current_quarter > 1):
+                # Tiene puntos o va más allá del primer cuarto = EN_PROGRESO
+                game.status = "EN_PROGRESO"
+            else:
+                # Fecha futura o de hoy sin actividad = PROGRAMADO
+                game.status = "PROGRAMADO"
+            needs_commit = True
+    
+    if needs_commit:
+        db.commit()
+    
+    return games
 
 
 
@@ -178,16 +251,42 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     for key, value in update_data.items():
         setattr(game, key, value)
     
+    # Transición automática a EN_PROGRESO si estaban en PROGRAMADO y cambian score/tiempo
+    if game.status == "PROGRAMADO":
+        if game.home_score > 0 or game.away_score > 0 or game.current_quarter > 1 or game.remaining_time_seconds < 600 or not game.is_paused:
+            game.status = "EN_PROGRESO"
+
     db.commit()
     db.refresh(game)
     return game
 
 def delete_game(db:Session, game_id:int) -> bool:
+    # 1. Obtener el juego
     game = get_game_by_id(db, game_id)
-    
     if not game:
         return False
     
+    # 2. Eliminar en cascada en orden correcto (respetando FKs NOT NULL)
+    # 2.1 Eliminar eventos asociados (Event -> GamePlayer -> Game)
+    db.query(Event).filter(
+        Event.fk_id_game_player_events.in_(
+            db.query(GamePlayer.id_game_player).filter(GamePlayer.fk_id_game == game_id)
+        )
+    ).delete(synchronize_session=False)
+    
+    # 2.2 Eliminar estadísticas de jugadores (PlayerStats -> GamePlayer -> Game)
+    db.query(PlayerStats).filter(
+        PlayerStats.fk_id_game_player.in_(
+            db.query(GamePlayer.id_game_player).filter(GamePlayer.fk_id_game == game_id)
+        )
+    ).delete(synchronize_session=False)
+    
+    # 2.3 Eliminar registros de jugadores en el partido (GamePlayer -> Game)
+    db.query(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id
+    ).delete(synchronize_session=False)
+    
+    # 3. Finalmente eliminar el juego
     db.delete(game)
     db.commit()
     return True    
@@ -198,6 +297,10 @@ def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, qua
     """
     game = get_game_by_id(db, game_id)
     if game:
+        if game.status == "PROGRAMADO":
+            if not paused or seconds < 600 or quarter and quarter > 1:
+                game.status = "EN_PROGRESO"
+
         game.remaining_time_seconds = seconds
         game.is_paused = paused
         if quarter:
@@ -302,7 +405,8 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         remaining_time_seconds=600,
         is_paused=True,
         home_score=0,
-        away_score=0
+        away_score=0,
+        status="PROGRAMADO"
     )
     db.add(game)
     db.flush()  # Obtenemos id_game

@@ -14,6 +14,7 @@ class Game(Base):
     is_paused = Column(Boolean, default=True)
     home_score = Column(Integer, default=0)
     away_score = Column(Integer, default=0)
+    status = Column(String(20), default="PROGRAMADO")
     
     fk_home_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     fk_away_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)

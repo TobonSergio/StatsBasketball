@@ -74,3 +74,36 @@ def get_stats_by_game(db: Session, game_id: int):
         .all()
     )
 
+def reset_player_stats(db: Session, game_player_id: int) -> PlayerStats:
+    """
+    Resetea a 0 todas las estadísticas de un jugador en un juego.
+    """
+    stats = db.query(PlayerStats).filter(
+        PlayerStats.fk_id_game_player == game_player_id
+    ).first()
+
+    if not stats:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stats record not found"
+        )
+
+    stats.points_two_made = 0
+    stats.points_two_attempts = 0
+    stats.points_three_made = 0
+    stats.points_three_attempts = 0
+    stats.free_throw_made = 0
+    stats.free_throw_attempts = 0
+    stats.rebounds = 0
+    stats.assists = 0
+    stats.steals = 0
+    stats.blocks = 0
+    stats.turnovers = 0
+    stats.fouls = 0
+    stats.minutes_played = 0.0
+
+    db.commit()
+    db.refresh(stats)
+    return stats
+
+

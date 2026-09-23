@@ -63,6 +63,11 @@ def get_players_by_game(db: Session, game_id: int):
         GamePlayer.fk_id_game == game_id
     ).all()
 
+def get_games_by_player(db: Session, player_id: int):
+    return db.query(GamePlayer).filter(
+        GamePlayer.fk_id_player == player_id
+    ).all()
+
 def get_game_player(
     db: Session,
     game_id: int,
