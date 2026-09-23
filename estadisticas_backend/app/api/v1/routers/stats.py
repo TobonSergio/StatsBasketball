@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from typing import List
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.players_stats import PlayerStatsCreate, PlayerStatsResponse, PlayerStatsUpdate
 from app.services import stats_service
 
@@ -9,14 +10,6 @@ router = APIRouter(
     prefix="/stats",
     tags=["Player Stats"]
 )
-
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post(
     "/",
@@ -58,7 +51,7 @@ def update_stats(
 
 @router.get(
     "/game/{game_id}",
-    response_model=list[PlayerStatsResponse]
+    response_model=List[PlayerStatsResponse]
 )
 def get_game_box_score(
     game_id: int,

@@ -1,20 +1,11 @@
+from datetime import datetime
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from datetime import datetime
-
-from app.models.events import Event
-from app.models.games_players import GamePlayer
-from app.schemas.events import EventCreate
-from app.models.players_stats import PlayerStats
-
-from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
-from datetime import datetime
 
 from app.models.events import Event
 from app.models.games_players import GamePlayer
 from app.models.players_stats import PlayerStats
-from app.models.games import Game  # <-- Importamos Game
+from app.models.games import Game
 from app.schemas.events import EventCreate
 
 def create_event(db: Session, event_data: EventCreate) -> Event:
@@ -158,25 +149,24 @@ def delete_event(db: Session, event_id: int) -> bool:
         elif etype == "assist":
             stats.assists -= 1
         elif etype == "block":
-            stats.blocks -=1
+            stats.blocks -= 1
         elif etype == "steal":
-            stats.steals -=1
+            stats.steals -= 1
         elif etype == "rebound":
-            stats.rebounds -=1
+            stats.rebounds -= 1
         elif etype == "turnover":
-            stats.rebounds -=1
-        # ... (repite para rebotes, bloqueos, etc.)
+            stats.turnovers -= 1
 
     # 4. Restar del marcador global del juego
     if points_to_subtract > 0:
         game_player = db.query(GamePlayer).filter(GamePlayer.id_game_player == gp_id).first()
-        game = db.query(Game).filter(Game.id_game == game_player.fk_id_game).first()
-        
-        if game:
-            if game_player.fk_id_team == game.fk_home_id_team:
-                game.home_score -= points_to_subtract
-            else:
-                game.away_score -= points_to_subtract
+        if game_player:
+            game = db.query(Game).filter(Game.id_game == game_player.fk_id_game).first()
+            if game:
+                if game_player.fk_id_team == game.fk_home_id_team:
+                    game.home_score -= points_to_subtract
+                else:
+                    game.away_score -= points_to_subtract
 
     # 5. Finalmente, borrar el evento
     db.delete(db_event)

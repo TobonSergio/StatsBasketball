@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from typing import List
 
-
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.games_players import (
     GamePlayerCreate,
     GamePlayerResponse
@@ -14,14 +13,6 @@ router = APIRouter(
     prefix="/games-players",
     tags=["Games Players"]
 )
-
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post(
     "/",
@@ -72,3 +63,4 @@ def remove_player_from_game(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Player not assigned to this game"
         )
+

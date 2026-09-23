@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.events import EventCreate, EventResponse
 from app.services import events_service
 
@@ -10,14 +10,6 @@ router = APIRouter(
     prefix="/events",
     tags=["Events"]
 )
-
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post(
     "/",

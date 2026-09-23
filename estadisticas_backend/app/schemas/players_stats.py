@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import Optional
 
 class PlayerStatsBase(BaseModel):
-    # Ajustamos a los nombres reales de tu Base de Datos y Modelo
     points_two_made: int = 0
     points_two_attempts: int = 0
     points_three_made: int = 0
@@ -14,13 +13,13 @@ class PlayerStatsBase(BaseModel):
     steals: int = 0
     blocks: int = 0
     turnovers: int = 0
-    # Si en tu tabla no tienes 'fouls' o 'minutes_played', 
-    # asegúrate de agregarlos a la DB o quitarlos de aquí.
+    fouls: int = 0
+    minutes_played: float = 0.0
 
 class PlayerStatsCreate(PlayerStatsBase):
     fk_id_game_player: int
 
-class PlayerStatsUpdate(PlayerStatsBase):
+class PlayerStatsUpdate(BaseModel):
     # Permite que todos los campos sean opcionales al actualizar
     points_two_made: Optional[int] = None
     points_two_attempts: Optional[int] = None
@@ -33,6 +32,8 @@ class PlayerStatsUpdate(PlayerStatsBase):
     steals: Optional[int] = None
     blocks: Optional[int] = None
     turnovers: Optional[int] = None
+    fouls: Optional[int] = None
+    minutes_played: Optional[float] = None
 
 class PlayerStatsResponse(PlayerStatsBase):
     id_player_stats: int
