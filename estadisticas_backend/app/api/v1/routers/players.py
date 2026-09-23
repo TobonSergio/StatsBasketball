@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.players import PlayerCreate, PlayerUpdate, PlayerResponse
+from app.schemas.players_stats import PlayerStatsResponse
 from app.services import players_service
 
 router = APIRouter(
@@ -11,23 +12,16 @@ router = APIRouter(
     tags=["Players"]
 )
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post(
     "/",
     response_model=PlayerResponse,
     status_code=status.HTTP_201_CREATED
 )
 def create_player(
-    player:PlayerCreate,
+    player: PlayerCreate,
     db: Session = Depends(get_db)
 ):
-    return players_service.create_player(db,player)
+    return players_service.create_player(db, player)
 
 @router.get(
     "/",
@@ -40,7 +34,7 @@ def list_players(db: Session = Depends(get_db)):
     "/{player_id}",
     response_model=PlayerResponse
 )
-def get_player(player_id:int, db:Session=Depends(get_db)):
+def get_player(player_id: int, db: Session = Depends(get_db)):
     player = players_service.get_player_by_id(db, player_id)
     
     if not player:
@@ -55,15 +49,8 @@ def get_player(player_id:int, db:Session=Depends(get_db)):
     "/team/{team_id}",
     response_model=List[PlayerResponse]
 )
-def get_players_by_team(team_id:int, db:Session=Depends(get_db)):
+def get_players_by_team(team_id: int, db: Session = Depends(get_db)):
     players = players_service.get_players_by_team(db, team_id)
-    
-    if not players:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No players found for this team"
-        )
-    
     return players
 
 @router.put(
@@ -71,9 +58,9 @@ def get_players_by_team(team_id:int, db:Session=Depends(get_db)):
     response_model=PlayerResponse
 )
 def update_player(
-    player_id:int,
-    player_data:PlayerUpdate,
-    db:Session = Depends(get_db)
+    player_id: int,
+    player_data: PlayerUpdate,
+    db: Session = Depends(get_db)
 ):
     player = players_service.update_player(db, player_id, player_data)
     
@@ -89,7 +76,7 @@ def update_player(
     "/{player_id}",
     status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_player(player_id:int, db:Session = Depends(get_db)):
+def delete_player(player_id: int, db: Session = Depends(get_db)):
     success = players_service.delete_player(db, player_id)
     
     if not success:
@@ -109,7 +96,10 @@ def get_career_summary(
     """
     return players_service.get_player_career_stats(db, player_id)
 
-@router.get("/{player_id}/stats-history")
+@router.get(
+    "/{player_id}/stats-history",
+    response_model=List[PlayerStatsResponse]
+)
 def get_player_stats_history(player_id: int, limit: int = 10, db: Session = Depends(get_db)):
     history = players_service.get_player_game_history(db, player_id, limit)
     if not history:

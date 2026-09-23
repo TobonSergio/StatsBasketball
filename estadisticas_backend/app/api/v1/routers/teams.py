@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.teams import TeamCreate, TeamUpdate, TeamResponse
 from app.services import teams_service
 
@@ -10,16 +10,6 @@ router = APIRouter(
     prefix="/teams",
     tags=["Teams"]
 )
-
-
-# 🔹 Dependencia para obtener la DB
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 
 # 🔹 Crear equipo
 @router.post(
@@ -33,7 +23,6 @@ def create_team(
 ):
     return teams_service.create_team(db, team)
 
-
 # 🔹 Listar equipos
 @router.get(
     "/",
@@ -41,7 +30,6 @@ def create_team(
 )
 def list_teams(db: Session = Depends(get_db)):
     return teams_service.get_teams(db)
-
 
 # 🔹 Obtener equipo por ID
 @router.get(
@@ -58,7 +46,6 @@ def get_team(team_id: int, db: Session = Depends(get_db)):
         )
 
     return team
-
 
 # 🔹 Actualizar equipo
 @router.put(
@@ -80,7 +67,6 @@ def update_team(
 
     return team
 
-
 # 🔹 Eliminar equipo
 @router.delete(
     "/{team_id}",
@@ -94,3 +80,4 @@ def delete_team(team_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Team not found"
         )
+

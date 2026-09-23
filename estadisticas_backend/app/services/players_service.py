@@ -1,3 +1,4 @@
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.players import Player
@@ -8,7 +9,7 @@ from app.models.games_players import GamePlayer
 def create_player(db:Session, player_data:PlayerCreate) -> Player:
     player = Player(
         name = player_data.name,
-        number = player_data.number,
+        number = str(player_data.number),
         fk_id_team = player_data.fk_id_team
     )
     db.add(player)
@@ -35,7 +36,7 @@ def update_player(db: Session, player_id: int, player_data: PlayerUpdate):
         player.name = player_data.name
     
     if player_data.number is not None:
-        player.number = player_data.number
+        player.number = str(player_data.number)
         
     if player_data.fk_id_team is not None:
         player.fk_id_team = player_data.fk_id_team
@@ -49,6 +50,13 @@ def delete_player(db:Session, player_id:int) -> bool:
     
     if not player:
         return False
+        
+    has_games = db.query(GamePlayer).filter(GamePlayer.fk_id_player == player_id).first()
+    if has_games:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete player. They have participated in games."
+        )
     
     db.delete(player)
     db.commit()
@@ -74,7 +82,25 @@ def get_player_career_stats(db: Session, player_id: int):
     ).filter(GamePlayer.fk_id_player == player_id).first()
 
     if not stats or stats.games_played == 0:
-        return {"msg": "No stats found"}
+        return {
+            "player_id": player_id,
+            "games_played": 0,
+            "total_points": 0,
+            "minutes": 0.0,
+            "rebounds": 0,
+            "assists": 0,
+            "steals": 0,
+            "blocks": 0,
+            "fouls": 0,
+            "turnovers": 0,
+            "p2_made": 0,
+            "p2_att": 0,
+            "p3_made": 0,
+            "p3_att": 0,
+            "ft_made": 0,
+            "ft_att": 0,
+            "avg_points": 0.0
+        }
 
     # Cálculo de puntos totales
     total_pts = (int(stats.p2_made or 0) * 2) + (int(stats.p3_made or 0) * 3) + int(stats.ft_made or 0)

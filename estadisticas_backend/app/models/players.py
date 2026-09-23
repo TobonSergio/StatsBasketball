@@ -7,7 +7,7 @@ class Player(Base):
     
     id_player = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    number = Column(Integer, nullable=False)
+    number = Column(String(5), nullable=False)
     fk_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     
     team = relationship("Team", back_populates="players")
