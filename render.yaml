@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: statsbasketball-backend
+    runtime: python
+    rootDir: estadisticas_backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Render te pedirá este valor en el panel (nunca lo expongas en el repo)
+      - key: ALLOWED_ORIGINS
+        sync: false          # Pon aquí la URL de tu frontend en Vercel, ej: https://stats-basketball.vercel.app
+    plan: free

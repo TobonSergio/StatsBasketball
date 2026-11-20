@@ -24,6 +24,7 @@ else:
 engine = create_engine(
     DATABASE_URL,
     poolclass=NullPool,  # Deshabilita el pool local de SQLAlchemy; PgBouncer se encarga
+    echo=True,
     connect_args={
         "prepare_threshold": None  # Deshabilita prepared statements incompatibles con PgBouncer
     }

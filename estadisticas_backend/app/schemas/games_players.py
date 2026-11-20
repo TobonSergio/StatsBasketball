@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
-# Importa el schema de Player (ajusta la ruta según tu proyecto)
 from app.schemas.players import PlayerResponse
+from app.schemas.players_stats import PlayerStatsResponse
 
 
 class GamePlayerBase(BaseModel):
@@ -16,9 +16,8 @@ class GamePlayerCreate(GamePlayerBase):
     
 class GamePlayerResponse(GamePlayerBase):
     id_game_player: int
-    # AQUÍ ESTÁ EL TRUCO: 
-    # Agregamos la relación para que se incluya en el JSON
     player: Optional[PlayerResponse] = None 
+    stats: Optional[PlayerStatsResponse] = None
 
     class Config:
         from_attributes = True

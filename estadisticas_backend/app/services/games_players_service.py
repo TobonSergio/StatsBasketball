@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
 from app.models.games_players import GamePlayer
@@ -59,9 +59,15 @@ def create_game_player(
     return game_player
 
 def get_players_by_game(db: Session, game_id: int):
-    return db.query(GamePlayer).filter(
-        GamePlayer.fk_id_game == game_id
-    ).all()
+    return (
+        db.query(GamePlayer)
+        .options(
+            joinedload(GamePlayer.player),
+            joinedload(GamePlayer.stats)
+        )
+        .filter(GamePlayer.fk_id_game == game_id)
+        .all()
+    )
 
 def get_games_by_player(db: Session, player_id: int):
     return db.query(GamePlayer).filter(

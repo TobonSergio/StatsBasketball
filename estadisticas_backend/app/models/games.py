@@ -14,10 +14,16 @@ class Game(Base):
     is_paused = Column(Boolean, default=True)
     home_score = Column(Integer, default=0)
     away_score = Column(Integer, default=0)
-    status = Column(String(20), default="PROGRAMADO")
+    # Campo de estado del juego (SCHEDULED, IN_PROGRESS, FINISHED)
+    status = Column(String(20), nullable=False, server_default="SCHEDULED")
+
     
     fk_home_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     fk_away_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
+    
+    # Campos de relación opcional con torneo
+    fk_id_tournament_phase = Column(Integer, nullable=True)
+    fk_id_tournament_group = Column(Integer, nullable=True)
     
     home_team = relationship(
         "Team",

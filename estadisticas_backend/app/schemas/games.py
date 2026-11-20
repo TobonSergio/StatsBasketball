@@ -14,6 +14,10 @@ class GameBase(BaseModel):
     home_score: Optional[int] = 0
     status: Optional[str] = "PROGRAMADO"
     away_score: Optional[int] = 0
+    # Campo de estado del juego (estandarizado en mayúsculas: SCHEDULED, IN_PROGRESS, FINISHED)
+    status: Optional[str] = "SCHEDULED"
+    fk_id_tournament_phase: Optional[int] = None
+    fk_id_tournament_group: Optional[int] = None
 
 class GameCreate(GameBase):
     pass
@@ -29,6 +33,9 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
     is_paused: Optional[bool] = None
     home_score: Optional[int] = None
     away_score: Optional[int] = None
+    status: Optional[str] = None
+    fk_id_tournament_phase: Optional[int] = None
+    fk_id_tournament_group: Optional[int] = None
 
 # Agrega este esquema simple arriba de GameResponse
 class TeamSimple(BaseModel):
@@ -51,9 +58,23 @@ class GameResponse(GameBase):
 class GameWithPlayersCreate(BaseModel):
     location: str
     date: datetime
-    home_team: int
-    away_team: int
+    fk_home_id_team: Optional[int] = None
+    fk_away_id_team: Optional[int] = None
+    home_team: Optional[int] = None
+    away_team: Optional[int] = None
+    status: Optional[str] = "SCHEDULED"
+    fk_id_tournament_phase: Optional[int] = None
+    fk_id_tournament_group: Optional[int] = None
     players: Dict[str, List[int]]  # {"home": [1,2,3], "away": [4,5,6]}
+
+    @property
+    def resolved_home_team_id(self) -> Optional[int]:
+        return self.fk_home_id_team if self.fk_home_id_team is not None else self.home_team
+
+    @property
+    def resolved_away_team_id(self) -> Optional[int]:
+        return self.fk_away_id_team if self.fk_away_id_team is not None else self.away_team
+
 
 class GameWithPlayersResponse(GameResponse):
     players: List[dict]  # Lista de game_players con info básica
