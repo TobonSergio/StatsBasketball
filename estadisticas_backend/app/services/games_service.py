@@ -109,6 +109,8 @@ def end_quarter_and_advance(db: Session, game_id: int):
         "players_synced": len(players_on_court)
     }
 def create_game(db: Session, game_data: GameCreate) -> Game:
+    if normalize_game_status(game_data.status or "SCHEDULED") == GameStatus.SCHEDULED.value:
+        scheduling_service.assert_not_in_past(game_data.date)
     scheduling_service.assert_teams_available(db, game_data.fk_home_id_team, game_data.fk_away_id_team, game_data.date)
     tournaments_service.validate_game_fit(
         db, game_data.fk_home_id_team, game_data.fk_away_id_team,
@@ -170,6 +172,8 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     if game.status != GameStatus.FINISHED.value and any(
         k in update_data for k in ("date", "fk_home_id_team", "fk_away_id_team")
     ):
+        if "date" in update_data and game.status == GameStatus.SCHEDULED.value:
+            scheduling_service.assert_not_in_past(update_data["date"])
         scheduling_service.assert_teams_available(
             db,
             update_data.get("fk_home_id_team", game.fk_home_id_team),
@@ -318,6 +322,9 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
             )
 
 
+    # "Jugar ahora" (IN_PROGRESS) empieza en este momento; lo programado debe ser futuro
+    if normalize_game_status(game_data.status or "SCHEDULED") == GameStatus.SCHEDULED.value:
+        scheduling_service.assert_not_in_past(game_data.date)
     scheduling_service.assert_teams_available(db, home_team_id, away_team_id, game_data.date)
     tournaments_service.validate_game_fit(
         db, home_team_id, away_team_id,
@@ -830,6 +837,7 @@ def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Opt
         raise HTTPException(status_code=409, detail="El partido está en juego y no se puede reprogramar")
 
     new_date = scheduling_service.to_local_naive(new_date)
+    scheduling_service.assert_not_in_past(new_date)
     scheduling_service.assert_teams_available(
         db, game.fk_home_id_team, game.fk_away_id_team, new_date, exclude_game_id=game.id_game)
     previous = game.date

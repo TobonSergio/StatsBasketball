@@ -27,6 +27,33 @@ MAX_GAMES_PER_DAY = int(os.getenv("MAX_GAMES_PER_DAY", "2"))
 COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
 
 
+PAST_TOLERANCE_MINUTES = 5  # holgura por diferencias de reloj entre el navegador y el servidor
+
+
+def now_local() -> datetime:
+    """Ahora, en hora de Colombia y sin zona (como se guardan las fechas de los partidos)."""
+    return datetime.now(COLOMBIA_UTC_OFFSET).replace(tzinfo=None)
+
+
+def assert_not_in_past(when: Optional[datetime], date_only: bool = False) -> None:
+    """
+    No se puede programar un partido en el pasado. Con date_only (calendarios generados, cuya hora es
+    un valor por defecto) solo se exige que el día no haya pasado.
+    """
+    if when is None:
+        return
+    when, now = to_local_naive(when), now_local()
+    past = when.date() < now.date() if date_only else when < now - timedelta(minutes=PAST_TOLERANCE_MINUTES)
+    if past:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No puedes programar un partido en una fecha que ya pasó "
+                f"(ahora es {now.strftime('%d/%m/%Y %H:%M')}, hora de Colombia)."
+            ),
+        )
+
+
 def to_local_naive(when: datetime) -> datetime:
     """Las fechas se guardan sin zona, en hora de Colombia."""
     if when.tzinfo is not None:
@@ -150,7 +177,8 @@ def generate_round_robin(
     ensure_no_games(db, phase)
 
     tournament = db.get(Tournament, tournament_id)
-    base_date = start_date or tournament.start_date or datetime.utcnow()
+    base_date = start_date or tournament.start_date or now_local()
+    assert_not_in_past(base_date, date_only=True)
     place = location or tournament.location or DEFAULT_LOCATION
 
     created = 0

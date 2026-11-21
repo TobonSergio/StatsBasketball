@@ -119,7 +119,8 @@ def generate_bracket(
 
     from app.models.tournaments import Tournament
     tournament = db.get(Tournament, tournament_id)
-    base_date = (start_date or tournament.start_date or datetime.utcnow()).replace(tzinfo=None)
+    base_date = scheduling_service.to_local_naive(start_date or tournament.start_date or scheduling_service.now_local())
+    scheduling_service.assert_not_in_past(base_date, date_only=True)
     place = location or tournament.location or scheduling_service.DEFAULT_LOCATION
     created = advance(db, phase, base_date=base_date, interval_days=interval_days, location=place)
     db.commit()
