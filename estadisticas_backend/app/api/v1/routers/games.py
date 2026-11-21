@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest
 from app.models.games_players import GamePlayer
 from app.services import games_service
@@ -12,13 +12,6 @@ router = APIRouter(
     prefix="/games",
     tags=["Games"]
 )
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post(
     "/",
@@ -49,9 +42,6 @@ def make_substitution(
     db: Session = Depends(get_db)
 ):
     result = games_service.swap_players(db, body.player_out_id, body.player_in_id, body.current_game_time)
-    if not result:
-        raise HTTPException(status_code=404, detail="Jugadores no encontrados o error en la validación de equipos/partido")
-        
     return {"message": "Cambio realizado con éxito", "data": result}
 
 @router.get(
@@ -129,12 +119,28 @@ def update_game_timer(
 @router.post("/{game_id}/overtime")
 def start_overtime(
     game_id: int,
+    overtime_seconds: int = 300,
     db: Session = Depends(get_db)
 ):
-    result = games_service.end_quarter_and_advance(db, game_id)
+    """Abre un tiempo extra de `overtime_seconds` (por defecto 5 min)."""
+    result = games_service.start_overtime(db, game_id, overtime_seconds)
     if not result:
         raise HTTPException(status_code=404, detail="Game not found")
     return result
+
+@router.post("/{game_id}/start", response_model=GameResponse)
+def start_game(game_id: int, db: Session = Depends(get_db)):
+    game = games_service.start_game(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
+
+@router.post("/{game_id}/finish", response_model=GameResponse)
+def finish_game(game_id: int, db: Session = Depends(get_db)):
+    game = games_service.finish_game(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
 
 @router.delete(
     "/{game_id}",

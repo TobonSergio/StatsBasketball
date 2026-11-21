@@ -13,64 +13,6 @@ from app.models.events import Event # Asegúrate de importar Event
 from app.models.games import Game # Asegúrate de que la ruta sea la correcta en tu proyecto
 
 
-def swap_players(db: Session, gp_out_id: int, gp_in_id: int, current_game_time: int):
-    """
-    Realiza el intercambio de jugadores y calcula minutos jugados
-    basado en un reloj descendente (600 a 0).
-    """
-    # 1. Buscamos a los jugadores
-    p_out = db.query(GamePlayer).filter(GamePlayer.id_game_player == gp_out_id).first()
-    p_in = db.query(GamePlayer).filter(GamePlayer.id_game_player == gp_in_id).first()
-
-    # 2. Validación de existencia
-    if not p_out or not p_in:
-        raise HTTPException(status_code=404, detail="Uno o ambos jugadores no existen")
-
-    # 3. VALIDACIÓN CRÍTICA: Mismo equipo y partido
-    if p_out.fk_id_team != p_in.fk_id_team or p_out.fk_id_game != p_in.fk_id_game:
-        raise HTTPException(
-            status_code=400, 
-            detail="Los jugadores deben ser del mismo equipo y partido"
-        )
-
-    # 4. VALIDACIÓN DE ESTADO: ¿Quién está en cancha?
-    if not p_out.is_on_court:
-        raise HTTPException(status_code=400, detail="El jugador que sale no está en cancha")
-    if p_in.is_on_court:
-        raise HTTPException(status_code=400, detail="El jugador que entra ya está en cancha")
-
-    # --- 🕒 5. LÓGICA DE TIEMPO (NUEVA) ---
-    if p_out.last_entry_time_seconds is not None:
-        # Cálculo: Tiempo Entrada (ej. 600) - Tiempo Salida (ej. 400)
-        segundos_jugados = p_out.last_entry_time_seconds - current_game_time
-        
-        # Evitar cálculos negativos si alguien mete un tiempo mayor al de entrada por error
-        if segundos_jugados > 0:
-            minutos_decimal = segundos_jugados / 60.0
-            
-            # Buscar PlayerStats para acumular los minutos
-            stats = db.query(PlayerStats).filter(
-                PlayerStats.fk_id_game_player == gp_out_id
-            ).first()
-            
-            if stats:
-                stats.minutes_played += minutos_decimal
-
-    # 6. Realizar el intercambio físico y de tiempos
-    # El que sale
-    p_out.is_on_court = False
-    p_out.last_entry_time_seconds = None 
-
-    # El que entra
-    p_in.is_on_court = True
-    p_in.last_entry_time_seconds = current_game_time # Marcamos su inicio
-
-    db.commit()
-    db.refresh(p_out)
-    db.refresh(p_in)
-    
-    return {"out": p_out, "in": p_in}
-
 def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: list[int]):
     """
     1. Pone a TODO el equipo en la banca.
@@ -637,30 +579,110 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
 
 
 def swap_players(db: Session, player_out_id: int, player_in_id: int, current_game_time: int):
+    """
+    Intercambia un jugador en cancha por uno de la banca y acumula los minutos
+    jugados (reloj descendente) del jugador que sale.
+    Lanza HTTPException con un mensaje específico si la validación falla.
+    """
     gp_out = db.query(GamePlayer).filter(GamePlayer.id_game_player == player_out_id).first()
     gp_in = db.query(GamePlayer).filter(GamePlayer.id_game_player == player_in_id).first()
-    
+
     if not gp_out or not gp_in:
-        return None
-        
+        raise HTTPException(status_code=404, detail="Uno o ambos jugadores no existen")
+
     if gp_out.fk_id_team != gp_in.fk_id_team or gp_out.fk_id_game != gp_in.fk_id_game:
-        return None
-        
+        raise HTTPException(status_code=400, detail="Los jugadores deben ser del mismo equipo y partido")
+
+    if not gp_out.is_on_court:
+        raise HTTPException(status_code=400, detail="El jugador que sale no está en cancha")
+    if gp_in.is_on_court:
+        raise HTTPException(status_code=400, detail="El jugador que entra ya está en cancha")
+
     if gp_out.last_entry_time_seconds is not None:
         time_diff = gp_out.last_entry_time_seconds - current_game_time
         if time_diff > 0:
             stats_out = db.query(PlayerStats).filter(PlayerStats.fk_id_game_player == gp_out.id_game_player).first()
             if stats_out:
                 stats_out.minutes_played = (stats_out.minutes_played or 0.0) + (time_diff / 60.0)
-                
+
     gp_out.is_on_court = False
     gp_out.last_entry_time_seconds = None
-    
+
     gp_in.is_on_court = True
     gp_in.last_entry_time_seconds = current_game_time
-    
+
     db.commit()
     db.refresh(gp_out)
     db.refresh(gp_in)
     return {"player_out": gp_out.id_game_player, "player_in": gp_in.id_game_player}
 
+
+def start_game(db: Session, game_id: int):
+    """Marca el partido como IN_PROGRESS (idempotente). El reloj sigue en pausa."""
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status == "FINISHED":
+        raise HTTPException(status_code=409, detail="El partido ya finalizó")
+    game.status = "IN_PROGRESS"
+    db.commit()
+    db.refresh(game)
+    return game
+
+
+def finish_game(db: Session, game_id: int):
+    """
+    Finaliza el partido: pausa el reloj, cobra los minutos de quienes siguen en
+    cancha (según el reloj actual) y marca el estado FINISHED (idempotente).
+    """
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status == "FINISHED":
+        return game
+
+    on_court = db.query(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.is_on_court == True  # noqa: E712
+    ).all()
+    for gp in on_court:
+        if gp.last_entry_time_seconds is not None:
+            played = gp.last_entry_time_seconds - (game.remaining_time_seconds or 0)
+            if played > 0:
+                stats = db.query(PlayerStats).filter(
+                    PlayerStats.fk_id_game_player == gp.id_game_player
+                ).first()
+                if stats:
+                    stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
+            gp.last_entry_time_seconds = None
+
+    game.status = "FINISHED"
+    game.is_paused = True
+    db.commit()
+    db.refresh(game)
+    return game
+
+
+def start_overtime(db: Session, game_id: int, overtime_seconds: int = 300):
+    """
+    Cierra el periodo actual (cobrando minutos) y abre un tiempo extra con la
+    duración indicada. Reutiliza end_quarter_and_advance y ajusta el reloj.
+    """
+    if overtime_seconds <= 0:
+        raise HTTPException(status_code=422, detail="overtime_seconds debe ser mayor que 0")
+    result = end_quarter_and_advance(db, game_id)
+    if not result:
+        return None
+    game = get_game_by_id(db, game_id)
+    game.remaining_time_seconds = overtime_seconds
+    game.is_paused = True
+    # Los jugadores en cancha entran al OT con la duración del OT como marca de entrada
+    db.query(GamePlayer).filter(
+        GamePlayer.fk_id_game == game_id,
+        GamePlayer.is_on_court == True  # noqa: E712
+    ).update({"last_entry_time_seconds": overtime_seconds}, synchronize_session=False)
+    db.commit()
+    db.refresh(game)
+    result["message"] = f"Tiempo extra iniciado (periodo {game.current_quarter})"
+    result["remaining_time_seconds"] = overtime_seconds
+    return result
