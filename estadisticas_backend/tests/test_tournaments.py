@@ -96,3 +96,14 @@ def test_game_list_exposes_tournament_info(db, two_teams):
     assert (tourn.tournament_name, tourn.phase_name, tourn.group_name) == ("Copa", "Grupos", "A")
     assert tourn.tournament_id == t.id_tournament
     assert next(g for g in out if g.is_friendly).tournament_name is None
+
+
+def test_phase_type_is_normalized_and_legs_saved(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    t = tournaments_service.create_tournament(db, TournamentCreate(
+        name="Liga", phases=[
+            PhaseCreate(name="Regular", type="group_stage", legs=2, groups=[GroupCreate(name="A", team_ids=[a.id_team, b.id_team])]),
+            PhaseCreate(name="Final", type="Playoffs", sequence_order=2, groups=[GroupCreate(name="Llave")]),
+        ]))
+    detail = tournaments_service.get_tournament_detail(db, t.id_tournament)
+    assert [(p["type"], p["legs"]) for p in detail["phases"]] == [("round_robin", 2), ("knockout", 1)]

@@ -15,6 +15,8 @@ class Tournament(Base):
     end_date = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(30), nullable=False, default="upcoming", server_default="upcoming")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Campeón (se fija al terminar la final de la llave o el último partido de la liga)
+    champion_team_id = Column(Integer, ForeignKey("teams.id_team", ondelete="SET NULL"), nullable=True)
 
     phases = relationship(
         "TournamentPhase", back_populates="tournament",
@@ -30,6 +32,10 @@ class TournamentPhase(Base):
     name = Column(String(100), nullable=False)
     type = Column(String(50), nullable=True)
     sequence_order = Column(Integer, nullable=False, default=1)
+    # round_robin: 1 = solo ida, 2 = ida y vuelta
+    legs = Column(Integer, nullable=False, default=1, server_default="1")
+    # Fase de liga que alimenta unos playoffs: cuántos equipos avanzan (total)
+    advance_count = Column(Integer, nullable=True)
 
     tournament = relationship("Tournament", back_populates="phases")
     groups = relationship("TournamentGroup", back_populates="phase", cascade="all, delete-orphan")

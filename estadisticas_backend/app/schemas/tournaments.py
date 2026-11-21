@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.enums import normalize_phase_type
 
 
 class GroupCreate(BaseModel):
@@ -12,7 +14,14 @@ class PhaseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     type: Optional[str] = None
     sequence_order: int = Field(default=1, ge=1)
+    legs: int = Field(default=1, ge=1, le=2)
+    advance_count: Optional[int] = Field(default=None, ge=2, le=64)
     groups: List[GroupCreate] = []
+
+    @field_validator("type")
+    @classmethod
+    def _normalize_type(cls, v):
+        return normalize_phase_type(v)
 
 
 class TournamentCreate(BaseModel):

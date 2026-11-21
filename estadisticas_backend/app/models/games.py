@@ -23,6 +23,12 @@ class Game(Base):
     status = Column(String(20), nullable=False, server_default="SCHEDULED")
 
     
+    # Torneos: jornada (liga) o ronda (llave) y posición dentro de la ronda
+    round = Column(Integer, nullable=True)
+    slot = Column(Integer, nullable=True)
+    # Partido no disputado (W.O.): marcador 20-0 y 0 puntos de clasificación al ausente
+    is_forfeit = Column(Boolean, nullable=False, default=False, server_default="false")
+
     fk_home_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     fk_away_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     

@@ -1,6 +1,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.enums import normalize_phase_type
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import (
@@ -28,7 +29,10 @@ def create_tournament(db: Session, data: TournamentCreate) -> Tournament:
         status="upcoming",
     )
     for ph in data.phases:
-        phase = TournamentPhase(name=ph.name, type=ph.type, sequence_order=ph.sequence_order)
+        phase = TournamentPhase(
+            name=ph.name, type=ph.type, sequence_order=ph.sequence_order,
+            legs=ph.legs, advance_count=ph.advance_count,
+        )
         for g in ph.groups:
             group = TournamentGroup(name=g.name)
             for team_id in dict.fromkeys(g.team_ids):  # sin duplicados, conserva orden
@@ -81,6 +85,7 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
                 "id_game": g.id_game, "date": g.date, "location": g.location, "status": g.status,
                 "home_score": g.home_score, "away_score": g.away_score,
                 "current_quarter": g.current_quarter,
+                "round": g.round, "slot": g.slot, "is_forfeit": bool(g.is_forfeit),
                 "fk_home_id_team": g.fk_home_id_team, "fk_away_id_team": g.fk_away_id_team,
                 "fk_id_tournament_phase": g.fk_id_tournament_phase,
                 "fk_id_tournament_group": g.fk_id_tournament_group,
@@ -114,7 +119,8 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
         "phases": [
             {
                 "id_phase": p.id_phase, "fk_id_tournament": p.fk_id_tournament,
-                "name": p.name, "type": p.type, "sequence_order": p.sequence_order,
+                "name": p.name, "type": normalize_phase_type(p.type), "sequence_order": p.sequence_order,
+                "legs": p.legs or 1, "advance_count": p.advance_count,
                 "tournament_groups": [
                     {"id_group": g.id_group, "fk_id_phase": g.fk_id_phase, "name": g.name}
                     for g in p.groups
