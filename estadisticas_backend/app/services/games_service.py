@@ -4,7 +4,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
-from app.services import standings_service, tournaments_service
+from app.services import tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -163,6 +163,8 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     was_finished = game.status == GameStatus.FINISHED.value
     for key, value in update_data.items():
         setattr(game, key, value)
+    if not was_finished and game.status == GameStatus.FINISHED.value:
+        tournaments_service.assert_can_finish(db, game)
 
     # Recalcula la tabla si el partido es (o dejó de ser) FINALIZADO, o si se corrigió su marcador
     if was_finished or game.status == GameStatus.FINISHED.value:
@@ -178,9 +180,10 @@ def delete_game(db:Session, game_id:int) -> bool:
     if not game:
         return False
     
-    group_id = game.fk_id_tournament_group
+    phase_id, group_id = game.fk_id_tournament_phase, game.fk_id_tournament_group
     db.delete(game)
-    standings_service.recompute_group(db, group_id)
+    db.flush()
+    tournaments_service.on_game_changed(db, phase_id, group_id)
     db.commit()
     return True
 
@@ -663,6 +666,8 @@ def start_game(db: Session, game_id: int):
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
     game.status = GameStatus.IN_PROGRESS.value
+    if game.tournament_phase is not None:
+        tournaments_service.refresh_status(db, game.tournament_phase.fk_id_tournament)
     db.commit()
     db.refresh(game)
     return game
@@ -694,6 +699,7 @@ def finish_game(db: Session, game_id: int):
                     stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
             gp.last_entry_time_seconds = None
 
+    tournaments_service.assert_can_finish(db, game)
     game.remaining_time_seconds = game.live_remaining_seconds
     game.status = GameStatus.FINISHED.value
     game.is_paused = True

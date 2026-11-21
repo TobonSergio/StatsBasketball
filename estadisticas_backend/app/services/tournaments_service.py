@@ -1,8 +1,10 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.enums import normalize_phase_type
-from app.services import standings_service
+from typing import Optional
+
+from app.core.enums import GameStatus, PhaseType, TournamentStatus, normalize_phase_type
+from app.services import bracket_service, standings_service
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import (
@@ -128,13 +130,79 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
         ],
         "games": games,
         "standings": standings,
+        "brackets": [
+            bracket_service.build(db, p) for p in t.phases
+            if normalize_phase_type(p.type) == PhaseType.KNOCKOUT.value and p.groups
+        ],
+        "champion": (
+            {"id_team": t.champion_team_id,
+             "name": getattr(db.get(Team, t.champion_team_id), "name", None)}
+            if t.champion_team_id else None
+        ),
     }
 
 
+def on_game_changed(db: Session, phase_id: Optional[int], group_id: Optional[int]) -> None:
+    """
+    Reacciona a un partido de torneo que se finalizó, corrigió, reabrió o borró (sin commit):
+    liga -> recalcula posiciones; playoffs -> avanza/ajusta la llave. Luego actualiza estado y campeón.
+    """
+    if phase_id is None:
+        return
+    phase = db.get(TournamentPhase, phase_id)
+    if not phase:
+        return
+    if normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value:
+        bracket_service.advance(db, phase)
+    else:
+        standings_service.recompute_group(db, group_id)
+    refresh_status(db, phase.fk_id_tournament)
+
+
 def apply_game_result(db: Session, game: Game) -> bool:
-    """
-    Actualiza la tabla de posiciones del grupo del partido (solo fases de liga).
-    Recalcula desde los partidos finalizados, así que es idempotente y sirve igual al
-    finalizar, corregir o borrar un partido. NO hace commit.
-    """
-    return standings_service.recompute_group(db, game.fk_id_tournament_group)
+    """Compatibilidad: ver on_game_changed. NO hace commit."""
+    if game.fk_id_tournament_phase is None:
+        return False
+    on_game_changed(db, game.fk_id_tournament_phase, game.fk_id_tournament_group)
+    return True
+
+
+def assert_can_finish(db: Session, game: Game) -> None:
+    """En playoffs no puede haber empate: debe jugarse tiempo extra."""
+    if game.fk_id_tournament_phase is None:
+        return
+    phase = db.get(TournamentPhase, game.fk_id_tournament_phase)
+    if phase and normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value             and (game.home_score or 0) == (game.away_score or 0):
+        raise HTTPException(status_code=409, detail="Empate en playoffs: juega tiempo extra antes de finalizar")
+
+
+def refresh_status(db: Session, tournament_id: int) -> None:
+    """Estado del torneo (upcoming/in_progress/finished) y campeón, derivados de los partidos."""
+    t = db.get(Tournament, tournament_id)
+    if not t:
+        return
+    db.flush()
+    phases = db.query(TournamentPhase).filter(
+        TournamentPhase.fk_id_tournament == tournament_id).order_by(TournamentPhase.sequence_order).all()
+    phase_ids = [p.id_phase for p in phases]
+    games = db.query(Game).filter(Game.fk_id_tournament_phase.in_(phase_ids)).all() if phase_ids else []
+
+    champion = None
+    if phases and games:
+        last = phases[-1]
+        if normalize_phase_type(last.type) == PhaseType.KNOCKOUT.value:
+            structure = bracket_service.build(db, last)
+            champ = structure.get("champion") if structure.get("generated") else None
+            champion = champ["id_team"] if champ else None
+        else:
+            last_games = [g for g in games if g.fk_id_tournament_phase == last.id_phase]
+            if last_games and all(g.status == GameStatus.FINISHED.value for g in last_games)                     and len(last.groups) == 1:
+                ranked = standings_service.ranked_group(db, last.groups[0].id_group)
+                champion = ranked[0].team_id if ranked else None
+
+    if champion:
+        t.status, t.champion_team_id = TournamentStatus.FINISHED.value, champion
+    else:
+        t.champion_team_id = None
+        started = any(g.status != GameStatus.SCHEDULED.value for g in games)
+        t.status = TournamentStatus.IN_PROGRESS.value if started else TournamentStatus.UPCOMING.value

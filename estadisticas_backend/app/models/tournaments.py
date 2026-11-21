@@ -67,6 +67,8 @@ class TournamentStanding(Base):
     points = Column(Integer, nullable=False, default=0)
     points_scored = Column(Integer, nullable=False, default=0)
     points_received = Column(Integer, nullable=False, default=0)
+    # Siembra en una llave de playoffs (1 = mejor sembrado); NULL en fases de liga
+    seed = Column(Integer, nullable=True)
 
     group = relationship("TournamentGroup", back_populates="standings")
     team = relationship("Team")

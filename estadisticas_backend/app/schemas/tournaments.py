@@ -39,3 +39,7 @@ class GenerateRequest(BaseModel):
     start_date: Optional[datetime] = None
     interval_days: int = Field(default=7, ge=1, le=60)
     location: Optional[str] = Field(default=None, max_length=100)
+    # Solo playoffs: equipos en orden de siembra (1.º = mejor), sorteo, o tomar la clasificación de la liga
+    seed_team_ids: Optional[List[int]] = None
+    shuffle: bool = False
+    from_previous_phase: bool = False
