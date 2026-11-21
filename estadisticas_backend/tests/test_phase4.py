@@ -183,7 +183,7 @@ def test_public_list_groups_by_status(db, two_teams):
     public_service._cache.clear()
     scheduled = make_game(db, two_teams, day=1)
     live = make_game(db, two_teams, day=2)
-    games_service.start_game(db, live.id_game)
+    games_service.start_game(db, live.id_game, adjust_date=True)
     done = make_game(db, two_teams, day=3)
     games_service.finish_game(db, done.id_game)
     out = public_service.list_games(db)

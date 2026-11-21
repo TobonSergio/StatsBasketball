@@ -42,6 +42,8 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
 - **Partidos atrasados**: un partido programado cuya hora pasó (más la gracia) y no se inició se marca `is_overdue`
   (no cambia su estado). El admin decide: iniciarlo tarde, reprogramarlo, declarar W.O. (torneo) o cancelarlo
   (solo amistosos). `games.started_at` / `finished_at` guardan la hora real de inicio y fin.
+- **Inicio anticipado**: iniciar un partido más de 15 min antes de su hora responde 409 `early_start`; al confirmar
+  (`adjust_date`) su fecha pasa a ser ahora, se valida la agenda de ambos equipos y queda en la auditoría.
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
@@ -96,6 +98,7 @@ Frontend: ver el README de `StastBasketBallFrontend`.
 | `AUTH_REQUIRED` | no | `false` solo en desarrollo |
 | `SQL_ECHO` | no | `true` imprime el SQL |
 | `MIN_REST_MINUTES` | no | Descanso mínimo entre partidos de un mismo equipo, en minutos (180 por defecto) |
+| `EARLY_START_TOLERANCE_MINUTES` | no | Antelación (min) a partir de la cual iniciar un partido pide confirmación y mueve su fecha a ahora (15 por defecto) |
 | `OVERDUE_GRACE_MINUTES` | no | Minutos tras la hora programada para marcar un partido como atrasado (30 por defecto) |
 | `MAX_GAMES_PER_DAY` | no | Máximo de partidos por equipo al día (2 por defecto) |
 

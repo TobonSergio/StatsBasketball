@@ -51,6 +51,11 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
             raise ValueError(f"status inválido: {v}. Use {[s.value for s in GameStatus]}")
         return normalized
 
+class StartRequest(BaseModel):
+    """Inicio del partido. `adjust_date` confirma un inicio anticipado y mueve la fecha a ahora."""
+    adjust_date: bool = False
+
+
 class CancelRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=200)
 

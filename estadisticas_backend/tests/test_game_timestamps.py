@@ -27,7 +27,7 @@ def test_play_now_records_exact_start(db, two_teams):
 
 def test_start_records_once_and_finish_records_end(db, two_teams):
     g = _game(db, two_teams)
-    games_service.start_game(db, g.id_game)
+    games_service.start_game(db, g.id_game, adjust_date=True)
     first = db.get(Game, g.id_game).started_at
     assert first is not None
     games_service.start_game(db, g.id_game)           # idempotente: no se sobrescribe
