@@ -35,6 +35,7 @@ def _game_header(g: Game) -> dict:
         "date": g.date,
         "location": g.location,
         "status": g.status,
+        "overdue": g.is_overdue,  # programado y ya pasó su hora: se muestra como "por confirmar"
         "current_quarter": g.current_quarter,
         "num_quarters": g.num_quarters,
         "live_remaining_seconds": g.live_remaining_seconds,

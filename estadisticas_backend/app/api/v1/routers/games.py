@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
-from app.schemas.games import RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
+from app.schemas.games import CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
 from app.services import audit_service, export_service, games_service
@@ -181,6 +181,21 @@ def reschedule_game(
         details={"from": previous.isoformat() if previous else None, "to": game.date.isoformat(),
                  "location": game.location, "reason": data.reason},
     )
+    return game
+
+
+@router.post("/{game_id}/cancel", response_model=GameResponse)
+def cancel_game(
+    game_id: int,
+    data: CancelRequest = CancelRequest(),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Cancela un amistoso que no se va a jugar (solo admin). Reprogramarlo lo reactiva."""
+    game = games_service.cancel_game(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.cancel", "game", game_id, game_id=game_id, details={"reason": data.reason})
     return game
 
 

@@ -64,6 +64,19 @@ class Game(Base):
         return live_remaining(self.remaining_time_seconds, self.clock_started_at, self.is_paused)
 
     @property
+    def is_overdue(self):
+        """Programado, con la hora ya pasada (más la gracia) y sin iniciarse: requiere decisión del admin."""
+        from datetime import timedelta
+
+        from app.core.enums import GameStatus
+        from app.services import scheduling_service
+
+        if self.status != GameStatus.SCHEDULED.value or self.date is None:
+            return False
+        limit = timedelta(minutes=scheduling_service.OVERDUE_GRACE_MINUTES)
+        return self.date < scheduling_service.now_local() - limit
+
+    @property
     def tournament_id(self):
         phase = self.tournament_phase
         return phase.fk_id_tournament if phase else None

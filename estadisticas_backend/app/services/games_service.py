@@ -26,6 +26,14 @@ def _mark_started(game: Game) -> None:
         game.started_at = utcnow()
 
 
+def _assert_not_cancelled(game: Game) -> None:
+    if game.status == GameStatus.CANCELLED.value:
+        raise HTTPException(
+            status_code=409,
+            detail="El partido está cancelado. Reprográmalo para reactivarlo antes de iniciarlo.",
+        )
+
+
 def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: list[int]):
     """
     1. Valida que sean 5 jugadores distintos de ese partido y equipo.
@@ -707,6 +715,7 @@ def start_game(db: Session, game_id: int):
         return None
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
+    _assert_not_cancelled(game)
     game.status = GameStatus.IN_PROGRESS.value
     _mark_started(game)
     if game.tournament_phase is not None:
@@ -724,6 +733,7 @@ def finish_game(db: Session, game_id: int):
     game = get_game_by_id(db, game_id)
     if not game:
         return None
+    _assert_not_cancelled(game)
     if game.status == GameStatus.FINISHED.value:
         return game
 
@@ -785,6 +795,7 @@ def start_clock(db: Session, game_id: int):
     game = get_game_by_id(db, game_id)
     if not game:
         return None
+    _assert_not_cancelled(game)
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
     if game.is_paused or game.clock_started_at is None:
@@ -858,8 +869,33 @@ def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Opt
         db, game.fk_home_id_team, game.fk_away_id_team, new_date, exclude_game_id=game.id_game)
     previous = game.date
     game.date = new_date
+    if game.status == GameStatus.CANCELLED.value:
+        game.status = GameStatus.SCHEDULED.value  # reprogramar un amistoso cancelado lo reactiva
     if location:
         game.location = location.strip()
     db.commit()
     db.refresh(game)
     return game, previous
+
+
+def cancel_game(db: Session, game_id: int):
+    """
+    Cancela un AMISTOSO programado (p. ej. uno atrasado que ya no se jugará).
+    Los partidos de torneo no se cancelan: afectarían la tabla o la llave; se reprograman o se declara W.O.
+    """
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.fk_id_tournament_phase is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Los partidos de torneo no se cancelan: reprográmalo o declara W.O. si un equipo no se presentó.",
+        )
+    if game.status == GameStatus.CANCELLED.value:
+        return game  # idempotente
+    if game.status != GameStatus.SCHEDULED.value:
+        raise HTTPException(status_code=409, detail="Solo se puede cancelar un partido que aún no se inició")
+    game.status = GameStatus.CANCELLED.value
+    db.commit()
+    db.refresh(game)
+    return game

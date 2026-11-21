@@ -39,6 +39,9 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
 - **Agenda de equipos**: al crear, mover o generar partidos se valida que ningún equipo juegue con menos de 3 h
   entre inicios ni más de 2 partidos al día (referencia: manual Youth EuroBasket de FIBA y guías juveniles
   NBA/USA Basketball); si no se cumple, la API responde 409 con el choque exacto.
+- **Partidos atrasados**: un partido programado cuya hora pasó (más la gracia) y no se inició se marca `is_overdue`
+  (no cambia su estado). El admin decide: iniciarlo tarde, reprogramarlo, declarar W.O. (torneo) o cancelarlo
+  (solo amistosos). `games.started_at` / `finished_at` guardan la hora real de inicio y fin.
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
@@ -93,6 +96,7 @@ Frontend: ver el README de `StastBasketBallFrontend`.
 | `AUTH_REQUIRED` | no | `false` solo en desarrollo |
 | `SQL_ECHO` | no | `true` imprime el SQL |
 | `MIN_REST_MINUTES` | no | Descanso mínimo entre partidos de un mismo equipo, en minutos (180 por defecto) |
+| `OVERDUE_GRACE_MINUTES` | no | Minutos tras la hora programada para marcar un partido como atrasado (30 por defecto) |
 | `MAX_GAMES_PER_DAY` | no | Máximo de partidos por equipo al día (2 por defecto) |
 
 ## Despliegue
@@ -136,6 +140,7 @@ erDiagram
 | `POST /events/` · `DELETE /events/{id}` | scorer | Registrar / deshacer una acción |
 | `GET /games/{id}/box-score.csv` | viewer | Exporta el box score |
 | `POST /tournaments/{id}/phases/{fase}/generate` | admin | Genera el calendario de liga o la llave de playoffs de la fase |
+| `POST /games/{id}/cancel` | admin | Cancela un amistoso programado que no se jugará (los de torneo no se cancelan) |
 | `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |
 | `GET /public/games` · `/public/games/{id}/live` | **público** | Vista de espectadores |

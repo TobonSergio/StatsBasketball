@@ -51,6 +51,10 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
             raise ValueError(f"status inválido: {v}. Use {[s.value for s in GameStatus]}")
         return normalized
 
+class CancelRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
 class RescheduleRequest(BaseModel):
     """Reprogramación manual de un partido que aún no se jugó."""
     date: datetime
@@ -74,6 +78,7 @@ class GameResponse(GameBase):
     live_remaining_seconds: Optional[int] = None  # reloj real calculado por el servidor
     started_at: Optional[datetime] = None  # momento real (UTC) en que se inició el partido
     finished_at: Optional[datetime] = None
+    is_overdue: bool = False  # programado, ya pasó su hora y nadie lo inició
     tournament_id: Optional[int] = None
     tournament_name: Optional[str] = None
     phase_name: Optional[str] = None
