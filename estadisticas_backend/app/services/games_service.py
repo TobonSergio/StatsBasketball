@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session, joinedload
@@ -7,7 +7,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
-from app.services import standings_service, tournaments_service
+from app.services import scheduling_service, standings_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -109,6 +109,7 @@ def end_quarter_and_advance(db: Session, game_id: int):
         "players_synced": len(players_on_court)
     }
 def create_game(db: Session, game_data: GameCreate) -> Game:
+    scheduling_service.assert_teams_available(db, game_data.fk_home_id_team, game_data.fk_away_id_team, game_data.date)
     tournaments_service.validate_game_fit(
         db, game_data.fk_home_id_team, game_data.fk_away_id_team,
         getattr(game_data, 'fk_id_tournament_phase', None), getattr(game_data, 'fk_id_tournament_group', None))
@@ -165,6 +166,17 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     update_data = game_data.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] is not None:
         update_data["status"] = normalize_game_status(update_data["status"])
+
+    if game.status != GameStatus.FINISHED.value and any(
+        k in update_data for k in ("date", "fk_home_id_team", "fk_away_id_team")
+    ):
+        scheduling_service.assert_teams_available(
+            db,
+            update_data.get("fk_home_id_team", game.fk_home_id_team),
+            update_data.get("fk_away_id_team", game.fk_away_id_team),
+            update_data.get("date", game.date),
+            exclude_game_id=game.id_game,
+        )
 
     was_finished = game.status == GameStatus.FINISHED.value
     for key, value in update_data.items():
@@ -306,6 +318,7 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
             )
 
 
+    scheduling_service.assert_teams_available(db, home_team_id, away_team_id, game_data.date)
     tournaments_service.validate_game_fit(
         db, home_team_id, away_team_id,
         getattr(game_data, 'fk_id_tournament_phase', None), getattr(game_data, 'fk_id_tournament_group', None))
@@ -802,9 +815,6 @@ def forfeit_game(db: Session, game_id: int, loser_team_id: int):
     return game
 
 
-COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
-
-
 def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Optional[str] = None):
     """
     Reprograma manualmente un partido que aún no empezó (fecha y, opcional, sede).
@@ -819,8 +829,9 @@ def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Opt
     if game.status == GameStatus.IN_PROGRESS.value:
         raise HTTPException(status_code=409, detail="El partido está en juego y no se puede reprogramar")
 
-    if new_date.tzinfo is not None:
-        new_date = new_date.astimezone(COLOMBIA_UTC_OFFSET).replace(tzinfo=None)
+    new_date = scheduling_service.to_local_naive(new_date)
+    scheduling_service.assert_teams_available(
+        db, game.fk_home_id_team, game.fk_away_id_team, new_date, exclude_game_id=game.id_game)
     previous = game.date
     game.date = new_date
     if location:

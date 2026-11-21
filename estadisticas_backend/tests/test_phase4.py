@@ -34,10 +34,10 @@ class TestLiveRemaining:
         assert live_remaining(600, NOW, False, now=NOW - timedelta(seconds=30)) == 600
 
 
-def make_game(db, two_teams):
+def make_game(db, two_teams, day=1):
     a, b, pa, pb = two_teams
     result = games_service.create_game_with_players(db, GameWithPlayersCreate(
-        location="X", date=datetime(2025, 1, 1, 15, 0), home_team=a.id_team, away_team=b.id_team,
+        location="X", date=datetime(2025, 1, day, 15, 0), home_team=a.id_team, away_team=b.id_team,
         players={"home": [p.id_player for p in pa], "away": [p.id_player for p in pb]},
     ))
     return db.get(Game, result.id_game)
@@ -181,10 +181,10 @@ def test_public_live_view_is_sanitized_and_complete(db, two_teams):
 
 def test_public_list_groups_by_status(db, two_teams):
     public_service._cache.clear()
-    scheduled = make_game(db, two_teams)
-    live = make_game(db, two_teams)
+    scheduled = make_game(db, two_teams, day=1)
+    live = make_game(db, two_teams, day=2)
     games_service.start_game(db, live.id_game)
-    done = make_game(db, two_teams)
+    done = make_game(db, two_teams, day=3)
     games_service.finish_game(db, done.id_game)
     out = public_service.list_games(db)
     assert [g["id_game"] for g in out["live"]] == [live.id_game]
