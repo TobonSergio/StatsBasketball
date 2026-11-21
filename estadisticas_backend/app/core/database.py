@@ -20,11 +20,16 @@ if raw_db_url and raw_db_url.startswith("postgresql://"):
 else:
     DATABASE_URL = raw_db_url
 
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL no está definida. Configúrala en .env (local) o en las variables de entorno del servidor."
+    )
+
 # Configuración del Motor para Supabase (PgBouncer en puerto 6543)
 engine = create_engine(
     DATABASE_URL,
     poolclass=NullPool,  # Deshabilita el pool local de SQLAlchemy; PgBouncer se encarga
-    echo=True,
+    echo=os.getenv("SQL_ECHO", "false").strip().lower() == "true",
     connect_args={
         "prepare_threshold": None  # Deshabilita prepared statements incompatibles con PgBouncer
     }

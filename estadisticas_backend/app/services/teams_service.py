@@ -16,8 +16,8 @@ def create_team(db: Session, team_data: TeamCreate) -> Team:
     return team
 
 
-def get_teams(db: Session):
-    return db.query(Team).all()
+def get_teams(db: Session, skip: int = 0, limit: int = 500):
+    return db.query(Team).order_by(Team.id_team).offset(skip).limit(limit).all()
 
 
 def get_team_by_id(db: Session, team_id: int):

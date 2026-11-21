@@ -37,3 +37,4 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+!.env.example

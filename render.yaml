@@ -5,7 +5,14 @@ services:
     rootDir: estadisticas_backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
       - key: DATABASE_URL
         sync: false          # Render te pedirá este valor en el panel (nunca lo expongas en el repo)
       - key: ALLOWED_ORIGINS

@@ -12,6 +12,11 @@ class Game(Base):
     current_quarter = Column(Integer, default=1)
     remaining_time_seconds = Column(Integer, default=600)
     is_paused = Column(Boolean, default=True)
+    # Reloj autoritativo: instante en que arrancó (NULL = en pausa). Ver app/core/clock.py
+    clock_started_at = Column(DateTime(timezone=True), nullable=True)
+    # Configuración del reglamento (antes fija en 600 s / 4 cuartos)
+    quarter_seconds = Column(Integer, nullable=False, default=600, server_default="600")
+    num_quarters = Column(Integer, nullable=False, default=4, server_default="4")
     home_score = Column(Integer, default=0)
     away_score = Column(Integer, default=0)
     # Campo de estado del juego (SCHEDULED, IN_PROGRESS, FINISHED)
@@ -22,8 +27,8 @@ class Game(Base):
     fk_away_id_team = Column(Integer, ForeignKey("teams.id_team"), nullable=False)
     
     # Campos de relación opcional con torneo
-    fk_id_tournament_phase = Column(Integer, nullable=True)
-    fk_id_tournament_group = Column(Integer, nullable=True)
+    fk_id_tournament_phase = Column(Integer, ForeignKey("tournament_phases.id_phase", ondelete="SET NULL"), nullable=True)
+    fk_id_tournament_group = Column(Integer, ForeignKey("tournament_groups.id_group", ondelete="SET NULL"), nullable=True)
     
     home_team = relationship(
         "Team",
@@ -38,4 +43,35 @@ class Game(Base):
     )
     
     players = relationship("GamePlayer", back_populates="game")
+
+    tournament_phase = relationship("TournamentPhase", foreign_keys=[fk_id_tournament_phase], lazy="select")
+    tournament_group = relationship("TournamentGroup", foreign_keys=[fk_id_tournament_group], lazy="select")
+
+    # Datos derivados para el listado (el front ya no consulta torneos por su cuenta)
+    @property
+    def live_remaining_seconds(self):
+        from app.core.clock import live_remaining
+        return live_remaining(self.remaining_time_seconds, self.clock_started_at, self.is_paused)
+
+    @property
+    def tournament_id(self):
+        phase = self.tournament_phase
+        return phase.fk_id_tournament if phase else None
+
+    @property
+    def tournament_name(self):
+        phase = self.tournament_phase
+        return phase.tournament.name if phase and phase.tournament else None
+
+    @property
+    def phase_name(self):
+        return self.tournament_phase.name if self.tournament_phase else None
+
+    @property
+    def group_name(self):
+        return self.tournament_group.name if self.tournament_group else None
+
+    @property
+    def is_friendly(self):
+        return self.fk_id_tournament_phase is None
 
