@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -28,8 +28,8 @@ def create_team(
     "/",
     response_model=List[TeamResponse]
 )
-def list_teams(db: Session = Depends(get_db)):
-    return teams_service.get_teams(db)
+def list_teams(skip: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000), db: Session = Depends(get_db)):
+    return teams_service.get_teams(db, skip, limit)
 
 # 🔹 Obtener equipo por ID
 @router.get(

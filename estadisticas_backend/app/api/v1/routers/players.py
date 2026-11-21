@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -27,8 +27,8 @@ def create_player(
     "/",
     response_model=List[PlayerResponse]
 )
-def list_players(db: Session = Depends(get_db)):
-    return players_service.get_players(db)
+def list_players(skip: int = Query(0, ge=0), limit: int = Query(1000, ge=1, le=2000), db: Session = Depends(get_db)):
+    return players_service.get_players(db, skip, limit)
 
 @router.get(
     "/{player_id}",

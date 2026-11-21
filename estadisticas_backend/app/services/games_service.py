@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
+from app.core.enums import GameStatus, normalize_game_status
+from app.services import tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -15,24 +17,43 @@ from app.models.games import Game # Asegúrate de que la ruta sea la correcta en
 
 def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: list[int]):
     """
-    1. Pone a TODO el equipo en la banca.
-    2. Activa solo a los 5 elegidos.
+    1. Valida que sean 5 jugadores distintos de ese partido y equipo.
+    2. Pone a TODO el equipo en la banca y activa solo a los 5 elegidos.
+    Devuelve False si no son exactamente 5; lanza HTTPException si no pertenecen al partido/equipo.
     """
-    # 1. Validación: Asegurar que solo manden 5
     if len(game_player_ids) != 5:
         return False
+    if len(set(game_player_ids)) != 5:
+        raise HTTPException(status_code=400, detail="Los titulares no pueden repetirse")
 
-    # 2. Reset: Todos los del equipo en este juego a la banca (is_on_court = False)
+    game = get_game_by_id(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    valid_ids = {
+        gp_id for (gp_id,) in db.query(GamePlayer.id_game_player).filter(
+            GamePlayer.fk_id_game == game_id,
+            GamePlayer.fk_id_team == team_id,
+            GamePlayer.id_game_player.in_(game_player_ids),
+        )
+    }
+    invalid = set(game_player_ids) - valid_ids
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Jugadores que no pertenecen a este partido/equipo: {sorted(invalid)}"
+        )
+
     db.query(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
         GamePlayer.fk_id_team == team_id
     ).update({"is_on_court": False, "last_entry_time_seconds": None}, synchronize_session=False)
 
-    # 3. Activación: Solo los 5 seleccionados a la cancha (is_on_court = True)
+    entry_time = game.remaining_time_seconds if game.remaining_time_seconds is not None else game.quarter_seconds
     db.query(GamePlayer).filter(
         GamePlayer.id_game_player.in_(game_player_ids)
-    ).update({"is_on_court": True, "last_entry_time_seconds": 600}, synchronize_session=False)
-    
+    ).update({"is_on_court": True, "last_entry_time_seconds": entry_time}, synchronize_session=False)
+
     db.commit()
     return True
 
@@ -41,6 +62,8 @@ def end_quarter_and_advance(db: Session, game_id: int):
     game = db.query(Game).filter(Game.id_game == game_id).first()
     if not game:
         return None
+    if game.status == GameStatus.FINISHED.value:
+        raise HTTPException(status_code=409, detail="El partido ya finalizó")
 
     # 2. Identificar a los jugadores en cancha
     players_on_court = db.query(GamePlayer).filter(
@@ -61,13 +84,13 @@ def end_quarter_and_advance(db: Session, game_id: int):
             if stats:
                 stats.minutes_played += minutes_to_add
             
-            # REINICIO: Sigue en cancha para el sgte cuarto, marca 600
-            gp.last_entry_time_seconds = 600 
+            # REINICIO: sigue en cancha para el sgte cuarto con el reloj lleno
+            gp.last_entry_time_seconds = game.quarter_seconds
 
     # --- 🚀 EL PASO QUE TE FALTABA ---
     game.current_quarter += 1
-    # También reseteamos el reloj visual del juego a 600 para el nuevo cuarto
-    game.remaining_time_seconds = 600
+    # Reseteamos el reloj del juego a la duración configurada del cuarto
+    game.remaining_time_seconds = game.quarter_seconds
     
     db.commit()
     db.refresh(game)
@@ -86,7 +109,9 @@ def create_game(db: Session, game_data: GameCreate) -> Game:
         fk_home_id_team=game_data.fk_home_id_team,
         fk_away_id_team=game_data.fk_away_id_team,
         current_quarter=1,
-        remaining_time_seconds=600, # 10 min por defecto
+        remaining_time_seconds=game_data.quarter_seconds or 600,
+        quarter_seconds=game_data.quarter_seconds or 600,
+        num_quarters=game_data.num_quarters or 4,
         is_paused=True,
         home_score=0,
         away_score=0,
@@ -98,12 +123,14 @@ def create_game(db: Session, game_data: GameCreate) -> Game:
     db.refresh(game)
     return game
 
-def get_games(db:Session):
+def get_games(db: Session, skip: int = 0, limit: int = 500):
     return db.query(Game)\
         .options(
             joinedload(Game.home_team), # <--- Carga los datos del equipo local
             joinedload(Game.away_team)  # <--- Carga los datos del equipo visitante
         )\
+        .order_by(Game.id_game)\
+        .offset(skip).limit(limit)\
         .all()
 
 
@@ -117,18 +144,6 @@ def get_game_by_id(db: Session, game_id: int):
         .filter(Game.id_game == game_id)\
         .first()
 
-def normalize_game_status(status_str: str) -> str:
-    if not status_str:
-        return "SCHEDULED"
-    s = str(status_str).strip().lower()
-    if s in ["in_progress", "live", "en_vivo", "jugando"]:
-        return "IN_PROGRESS"
-    if s in ["finished", "completed", "finalizado", "terminado"]:
-        return "FINISHED"
-    if s in ["scheduled", "programado"]:
-        return "SCHEDULED"
-    return status_str.upper()
-
 def update_game(db: Session, game_id: int, game_data: GameUpdate):
     game = get_game_by_id(db, game_id)
     if not game:
@@ -139,9 +154,13 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     if "status" in update_data and update_data["status"] is not None:
         update_data["status"] = normalize_game_status(update_data["status"])
 
+    was_finished = game.status == GameStatus.FINISHED.value
     for key, value in update_data.items():
         setattr(game, key, value)
-    
+
+    if not was_finished and game.status == GameStatus.FINISHED.value:
+        tournaments_service.apply_game_result(db, game)
+
     db.commit()
     db.refresh(game)
     return game
@@ -160,6 +179,7 @@ def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, qua
     """
     Función rápida para que el Front actualice el reloj y el cuarto.
     """
+    seconds = max(0, seconds)
     game = get_game_by_id(db, game_id)
     if game:
         game.remaining_time_seconds = seconds
@@ -275,7 +295,9 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         fk_home_id_team=home_team_id,
         fk_away_id_team=away_team_id,
         current_quarter=1,
-        remaining_time_seconds=600,
+        remaining_time_seconds=game_data.quarter_seconds or 600,
+        quarter_seconds=game_data.quarter_seconds or 600,
+        num_quarters=game_data.num_quarters or 4,
         is_paused=True,
         home_score=0,
         away_score=0,
@@ -296,7 +318,7 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
                 fk_id_player=player_id,
                 fk_id_team=team_id,
                 is_on_court=on_court,
-                last_entry_time_seconds=600 if on_court else None
+                last_entry_time_seconds=game.quarter_seconds if on_court else None
             )
             db.add(game_player)
             db.flush()  # Genera id_game_player para la estadística
@@ -622,9 +644,9 @@ def start_game(db: Session, game_id: int):
     game = get_game_by_id(db, game_id)
     if not game:
         return None
-    if game.status == "FINISHED":
+    if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
-    game.status = "IN_PROGRESS"
+    game.status = GameStatus.IN_PROGRESS.value
     db.commit()
     db.refresh(game)
     return game
@@ -638,7 +660,7 @@ def finish_game(db: Session, game_id: int):
     game = get_game_by_id(db, game_id)
     if not game:
         return None
-    if game.status == "FINISHED":
+    if game.status == GameStatus.FINISHED.value:
         return game
 
     on_court = db.query(GamePlayer).filter(
@@ -656,8 +678,9 @@ def finish_game(db: Session, game_id: int):
                     stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
             gp.last_entry_time_seconds = None
 
-    game.status = "FINISHED"
+    game.status = GameStatus.FINISHED.value
     game.is_paused = True
+    tournaments_service.apply_game_result(db, game)
     db.commit()
     db.refresh(game)
     return game

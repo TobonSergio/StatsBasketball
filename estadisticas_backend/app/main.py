@@ -1,6 +1,10 @@
 import os
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+import logging
+
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
@@ -11,6 +15,7 @@ from app.api.v1.routers import games
 from app.api.v1.routers import games_players
 from app.api.v1.routers import events
 from app.api.v1.routers import stats
+from app.api.v1.routers import tournaments
 from app.core.auth import AUTH_REQUIRED, get_current_user
 
 # Orígenes permitidos (ALLOWED_ORIGINS, separados por comas).
@@ -39,6 +44,25 @@ app.add_middleware(
 )
 
 
+logger = logging.getLogger("app")
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    """Violaciones de FK/unique/check -> 409 en vez de un 500 opaco."""
+    logger.warning("IntegrityError en %s %s: %s", request.method, request.url.path, exc.orig)
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Conflicto de integridad de datos (registro duplicado o referenciado por otros)"},
+    )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
+    logger.exception("Error de base de datos en %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Error interno de base de datos"})
+
+
 @app.get("/health", tags=["Health"])
 def health():
     """Endpoint público para el health check de Render y el ping anti cold-start."""
@@ -53,3 +77,4 @@ app.include_router(games.router, dependencies=_protected)
 app.include_router(games_players.router, dependencies=_protected)
 app.include_router(events.router, dependencies=_protected)
 app.include_router(stats.router, dependencies=_protected)
+app.include_router(tournaments.router, dependencies=_protected)

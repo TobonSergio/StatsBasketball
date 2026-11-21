@@ -5,3 +5,5 @@ from .games import Game
 from .games_players import GamePlayer
 from .players_stats import PlayerStats
 from .events import Event
+
+from .tournaments import Tournament, TournamentPhase, TournamentGroup, TournamentStanding

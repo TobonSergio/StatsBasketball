@@ -1,4 +1,5 @@
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
+from app.core.enums import GameStatus, normalize_game_status
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
@@ -12,8 +13,9 @@ class GameBase(BaseModel):
     remaining_time_seconds: Optional[int] = 600
     is_paused: Optional[bool] = True
     home_score: Optional[int] = 0
-    status: Optional[str] = "PROGRAMADO"
     away_score: Optional[int] = 0
+    quarter_seconds: Optional[int] = Field(default=600, ge=60, le=3600)
+    num_quarters: Optional[int] = Field(default=4, ge=1, le=12)
     # Campo de estado del juego (estandarizado en mayúsculas: SCHEDULED, IN_PROGRESS, FINISHED)
     status: Optional[str] = "SCHEDULED"
     fk_id_tournament_phase: Optional[int] = None
@@ -34,8 +36,20 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
     home_score: Optional[int] = None
     away_score: Optional[int] = None
     status: Optional[str] = None
+    quarter_seconds: Optional[int] = Field(default=None, ge=60, le=3600)
+    num_quarters: Optional[int] = Field(default=None, ge=1, le=12)
     fk_id_tournament_phase: Optional[int] = None
     fk_id_tournament_group: Optional[int] = None
+
+    @field_validator("status")
+    @classmethod
+    def _valid_status(cls, v):
+        if v is None:
+            return v
+        normalized = normalize_game_status(v)
+        if normalized not in {s.value for s in GameStatus}:
+            raise ValueError(f"status inválido: {v}. Use {[s.value for s in GameStatus]}")
+        return normalized
 
 # Agrega este esquema simple arriba de GameResponse
 class TeamSimple(BaseModel):
@@ -65,6 +79,8 @@ class GameWithPlayersCreate(BaseModel):
     status: Optional[str] = "SCHEDULED"
     fk_id_tournament_phase: Optional[int] = None
     fk_id_tournament_group: Optional[int] = None
+    quarter_seconds: Optional[int] = Field(default=600, ge=60, le=3600)
+    num_quarters: Optional[int] = Field(default=4, ge=1, le=12)
     players: Dict[str, List[int]]  # {"home": [1,2,3], "away": [4,5,6]}
 
     @property
@@ -78,6 +94,24 @@ class GameWithPlayersCreate(BaseModel):
 
 class GameWithPlayersResponse(GameResponse):
     players: List[dict]  # Lista de game_players con info básica
+
+class TimerUpdate(BaseModel):
+    """Acepta `time_remaining` o `remaining_time_seconds` (compatibilidad con el front)."""
+    time_remaining: Optional[int] = Field(default=None, ge=0)
+    remaining_time_seconds: Optional[int] = Field(default=None, ge=0)
+    is_paused: bool = True
+    current_quarter: Optional[int] = Field(default=None, ge=1)
+
+    @property
+    def seconds(self) -> Optional[int]:
+        if self.time_remaining is not None:
+            return self.time_remaining
+        return self.remaining_time_seconds
+
+
+class OvertimeParams(BaseModel):
+    overtime_seconds: int = Field(default=300, ge=1, le=3600)
+
 
 class SubstitutionRequest(BaseModel):
     player_out_id: int

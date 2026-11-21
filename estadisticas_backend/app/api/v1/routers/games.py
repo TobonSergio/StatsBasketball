@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
-from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest
+from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.services import games_service
 from app.schemas.games_players import GamePlayerResponse
@@ -49,8 +49,12 @@ def make_substitution(
     response_model=List[GameResponse]
 )
 
-def list_games(db:Session = Depends(get_db)):
-    return games_service.get_games(db)
+def list_games(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    return games_service.get_games(db, skip, limit)
 
 @router.get(
     "/{game_id}",
@@ -105,13 +109,17 @@ def patch_game(
 @router.patch("/{game_id}/timer")
 def update_game_timer(
     game_id: int,
-    timer_data: dict,
+    timer_data: TimerUpdate,
     db: Session = Depends(get_db)
 ):
-    seconds = timer_data.get("time_remaining") or timer_data.get("remaining_time_seconds") or 600
-    paused = timer_data.get("is_paused", True)
-    quarter = timer_data.get("current_quarter")
-    game = games_service.update_game_clock(db, game_id, seconds=int(seconds), paused=bool(paused), quarter=quarter)
+    if timer_data.seconds is None:
+        raise HTTPException(status_code=422, detail="Falta time_remaining o remaining_time_seconds")
+    game = games_service.update_game_clock(
+        db, game_id,
+        seconds=timer_data.seconds,
+        paused=timer_data.is_paused,
+        quarter=timer_data.current_quarter,
+    )
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     return {"message": "Timer updated successfully", "remaining_time_seconds": game.remaining_time_seconds, "is_paused": game.is_paused}
@@ -119,7 +127,7 @@ def update_game_timer(
 @router.post("/{game_id}/overtime")
 def start_overtime(
     game_id: int,
-    overtime_seconds: int = 300,
+    overtime_seconds: int = Query(300, ge=1, le=3600),
     db: Session = Depends(get_db)
 ):
     """Abre un tiempo extra de `overtime_seconds` (por defecto 5 min)."""
@@ -156,7 +164,7 @@ def delete_game(game_id:int, db:Session = Depends(get_db)):
         )
         
 @router.post("/{game_id}/teams/{team_id}/starters")
-def set_starters(game_id: int, team_id: int, player_ids: list[int], db: Session = Depends(get_db)):
+def set_starters(game_id: int, team_id: int, player_ids: list[int] = Body(..., min_length=1, max_length=12), db: Session = Depends(get_db)):
     result = games_service.set_starting_five(db, game_id, team_id, player_ids)
     if not result:
         raise HTTPException(status_code=400, detail="Debes seleccionar exactamente 5 jugadores")

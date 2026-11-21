@@ -17,8 +17,8 @@ def create_player(db:Session, player_data:PlayerCreate) -> Player:
     db.refresh(player)
     return player
 
-def get_players(db:Session):
-    return db.query(Player).all()
+def get_players(db: Session, skip: int = 0, limit: int = 1000):
+    return db.query(Player).order_by(Player.id_player).offset(skip).limit(limit).all()
 
 def get_player_by_id(db:Session, player_id:int):
     return db.query(Player).filter(Player.id_player == player_id).first()
