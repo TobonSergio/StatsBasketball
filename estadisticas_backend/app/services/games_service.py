@@ -90,11 +90,12 @@ def end_quarter_and_advance(db: Session, game_id: int):
         GamePlayer.is_on_court == True
     ).all()
 
-    # 3. Cobrar minutos y resetear marca de tiempo
+    # 3. Cobrar minutos y resetear marca de tiempo. Se descuenta el tiempo que quedaba en el reloj:
+    #    si el periodo se cierra antes de llegar a 0, no se cobra el periodo completo.
+    remaining_now = game.live_remaining_seconds
     for gp in players_on_court:
         if gp.last_entry_time_seconds is not None:
-            # Calculamos minutos (Tiempo entrada - 0)
-            minutes_to_add = gp.last_entry_time_seconds / 60.0
+            minutes_to_add = max(0, gp.last_entry_time_seconds - remaining_now) / 60.0
             
             # Sumar a estadísticas
             stats = db.query(PlayerStats).filter(

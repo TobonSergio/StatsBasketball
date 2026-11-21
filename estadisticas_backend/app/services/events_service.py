@@ -7,6 +7,19 @@ from app.models.games_players import GamePlayer
 from app.models.players_stats import PlayerStats
 from app.models.games import Game
 from app.schemas.events import EventCreate
+from app.core.enums import GameStatus
+
+
+def _assert_game_open(game: Game) -> None:
+    """Solo se anotan (o deshacen) acciones en un partido en juego: así el marcador y la tabla no se desincronizan."""
+    if game.status == GameStatus.IN_PROGRESS.value:
+        return
+    reasons = {
+        GameStatus.SCHEDULED.value: "El partido aún no se inició. Inícialo antes de registrar acciones.",
+        GameStatus.FINISHED.value: "El partido ya finalizó. Reábrelo (admin) si necesitas corregir estadísticas.",
+        GameStatus.CANCELLED.value: "El partido está cancelado.",
+    }
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reasons.get(game.status, "El partido no está en juego."))
 
 def create_event(db: Session, event_data: EventCreate) -> Event:
 
@@ -33,6 +46,7 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
     game = db.query(Game).filter(Game.id_game == game_player.fk_id_game).first()
     if not game:
         raise HTTPException(status_code=404, detail="Juego no encontrado.")
+    _assert_game_open(game)
     # 2️⃣ Crear el registro del evento
     db_event = Event(
         event_type=event_data.event_type,
@@ -119,6 +133,10 @@ def delete_event(db: Session, event_id: int) -> bool:
     # 2. Identificar qué hay que "deshacer"
     etype = db_event.event_type
     gp_id = db_event.fk_id_game_player_events
+    owner = db.query(GamePlayer).filter(GamePlayer.id_game_player == gp_id).first()
+    owner_game = db.query(Game).filter(Game.id_game == owner.fk_id_game).first() if owner else None
+    if owner_game:
+        _assert_game_open(owner_game)
     
     # 3. Restar de las estadísticas individuales (PlayerStats)
     stats = db.query(PlayerStats).filter(PlayerStats.fk_id_game_player == gp_id).first()
