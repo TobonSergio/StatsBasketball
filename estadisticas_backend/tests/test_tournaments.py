@@ -107,3 +107,29 @@ def test_phase_type_is_normalized_and_legs_saved(db, two_teams):
         ]))
     detail = tournaments_service.get_tournament_detail(db, t.id_tournament)
     assert [(p["type"], p["legs"]) for p in detail["phases"]] == [("round_robin", 2), ("knockout", 1)]
+
+
+def test_reschedule_game_rules(db, two_teams):
+    from datetime import timezone
+
+    a, b = two_teams[0], two_teams[1]
+    t = make_tournament(db, a, b)
+    game = make_game(db, a, b, t)
+    game.status = "SCHEDULED"
+    db.commit()
+
+    g, previous = games_service.reschedule_game(db, game.id_game, datetime(2026, 4, 1, 18, 30), "Coliseo")
+    assert g.date == datetime(2026, 4, 1, 18, 30) and g.location == "Coliseo"
+    assert previous == datetime(2025, 1, 1)
+
+    # una fecha con zona horaria se convierte a hora de Colombia (UTC-5) y se guarda sin zona
+    g, _ = games_service.reschedule_game(db, game.id_game, datetime(2026, 4, 2, 23, 0, tzinfo=timezone.utc))
+    assert g.date == datetime(2026, 4, 2, 18, 0) and g.location == "Coliseo"
+
+    assert games_service.reschedule_game(db, 9999, datetime(2026, 4, 1)) is None
+    for status in ("IN_PROGRESS", "FINISHED"):
+        game.status = status
+        db.commit()
+        with pytest.raises(HTTPException) as e:
+            games_service.reschedule_game(db, game.id_game, datetime(2026, 5, 1))
+        assert e.value.status_code == 409

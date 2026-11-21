@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
-from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
+from app.schemas.games import RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
 from app.services import audit_service, export_service, games_service
@@ -161,6 +161,26 @@ def finish_game(game_id: int, db: Session = Depends(get_db), user: dict = Depend
         raise HTTPException(status_code=404, detail="Game not found")
     audit_service.record(db, user, "game.finish", "game", game_id, game_id=game_id,
                          details={"home_score": game.home_score, "away_score": game.away_score})
+    return game
+
+
+@router.patch("/{game_id}/reschedule", response_model=GameResponse)
+def reschedule_game(
+    game_id: int,
+    data: RescheduleRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Reprogramación manual (fecha y sede) de un partido que aún no se juega. Solo admin."""
+    result = games_service.reschedule_game(db, game_id, data.date, data.location)
+    if not result:
+        raise HTTPException(status_code=404, detail="Game not found")
+    game, previous = result
+    audit_service.record(
+        db, user, "game.reschedule", "game", game_id, game_id=game_id,
+        details={"from": previous.isoformat() if previous else None, "to": game.date.isoformat(),
+                 "location": game.location, "reason": data.reason},
+    )
     return game
 
 
