@@ -24,6 +24,12 @@ class PlayerStats(Base):
     
     # Nuevas columnas agregadas
     fouls = Column(Integer, default=0)
+    # Faltas técnicas y antideportivas (también suman a `fouls`); 2 entre ambas = descalificación
+    technical_fouls = Column(Integer, nullable=False, default=0)
+    unsportsmanlike_fouls = Column(Integer, nullable=False, default=0)
+    # Desglose de rebotes (ambos suman también a `rebounds`)
+    offensive_rebounds = Column(Integer, nullable=False, default=0)
+    defensive_rebounds = Column(Integer, nullable=False, default=0)
     minutes_played = Column(Float, default=0.0)
 
     fk_id_game_player = Column(

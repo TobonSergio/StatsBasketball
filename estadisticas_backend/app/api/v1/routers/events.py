@@ -13,6 +13,12 @@ router = APIRouter(
     tags=["Events"]
 )
 
+
+@router.get("/game/{game_id}")
+def list_game_events(game_id: int, limit: int = 300, db: Session = Depends(get_db)):
+    """Bitácora jugada a jugada del partido (más reciente primero)."""
+    return events_service.list_by_game(db, game_id, max(1, min(limit, 1000)))
+
 @router.post(
     "/",
     response_model=EventResponse,

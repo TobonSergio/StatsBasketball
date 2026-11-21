@@ -16,6 +16,10 @@ class EventType(str, Enum):
     BLOCK = "block"
     TURNOVER = "turnover"
     FOUL = "foul"
+    TECHNICAL_FOUL = "technical_foul"
+    UNSPORTSMANLIKE_FOUL = "unsportsmanlike_foul"
+    OFFENSIVE_REBOUND = "offensive_rebound"
+    DEFENSIVE_REBOUND = "defensive_rebound"
 
 class EventBase(BaseModel):
     event_type: EventType

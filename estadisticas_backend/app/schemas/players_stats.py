@@ -14,6 +14,10 @@ class PlayerStatsBase(BaseModel):
     blocks: int = 0
     turnovers: int = 0
     fouls: int = 0
+    technical_fouls: int = 0
+    unsportsmanlike_fouls: int = 0
+    offensive_rebounds: int = 0
+    defensive_rebounds: int = 0
     minutes_played: float = 0.0
 
 class PlayerStatsCreate(PlayerStatsBase):

@@ -44,6 +44,9 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
   (solo amistosos). `games.started_at` / `finished_at` guardan la hora real de inicio y fin.
 - **Inicio anticipado**: iniciar un partido más de 15 min antes de su hora responde 409 `early_start`; al confirmar
   (`adjust_date`) su fecha pasa a ser ahora, se valida la agenda de ambos equipos y queda en la auditoría.
+- **Mesa de control**: solo se anotan o deshacen acciones con el partido en juego; faltas técnicas y
+  antideportivas (suman falta personal y de equipo; 2 de ellas = descalificación), rebotes ofensivos/defensivos,
+  tiempos muertos y bitácora (migración `0006`).
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
@@ -143,6 +146,8 @@ erDiagram
 | `POST /events/` · `DELETE /events/{id}` | scorer | Registrar / deshacer una acción |
 | `GET /games/{id}/box-score.csv` | viewer | Exporta el box score |
 | `POST /tournaments/{id}/phases/{fase}/generate` | admin | Genera el calendario de liga o la llave de playoffs de la fase |
+| `POST /games/{id}/timeouts` · `DELETE /games/{id}/timeouts/{tid}` | scorer | Tiempo muerto (FIBA: 2 en la 1.ª mitad, 3 en la 2.ª, 1 por prórroga); pausa el reloj |
+| `GET /events/game/{id}` | viewer | Bitácora jugada a jugada |
 | `POST /games/{id}/cancel` | admin | Cancela un amistoso programado que no se jugará (los de torneo no se cancelan) |
 | `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |

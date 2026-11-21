@@ -7,7 +7,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
-from app.services import scheduling_service, standings_service, tournaments_service
+from app.services import scheduling_service, standings_service, timeouts_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -18,6 +18,10 @@ from app.models.games_players import GamePlayer # Asegúrate de importar esto ar
 from app.models.players_stats import PlayerStats
 from app.models.events import Event # Asegúrate de importar Event
 from app.models.games import Game # Asegúrate de que la ruta sea la correcta en tu proyecto
+
+
+# Faltas que cuentan como faltas de equipo (FIBA: personales, técnicas y antideportivas de jugadores)
+TEAM_FOUL_EVENTS = ("foul", "technical_foul", "unsportsmanlike_foul")
 
 
 def _mark_started(game: Game) -> None:
@@ -452,7 +456,7 @@ def get_live_game_status(db: Session, game_id: int):
     home_fouls = db.query(Event).join(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
         GamePlayer.fk_id_team == game.fk_home_id_team,
-        Event.event_type == "foul",
+        Event.event_type.in_(TEAM_FOUL_EVENTS),
         Event.quarter == game.current_quarter
     ).count()
 
@@ -460,7 +464,7 @@ def get_live_game_status(db: Session, game_id: int):
     away_fouls = db.query(Event).join(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
         GamePlayer.fk_id_team == game.fk_away_id_team,
-        Event.event_type == "foul",
+        Event.event_type.in_(TEAM_FOUL_EVENTS),
         Event.quarter == game.current_quarter
     ).count()
 
@@ -480,7 +484,8 @@ def get_live_game_status(db: Session, game_id: int):
             "home_bonus": home_fouls >= 5, # El bonus suele ser a la 5ta falta
             "away_bonus": away_fouls >= 5
         },
-        "is_paused": game.is_paused
+        "is_paused": game.is_paused,
+        "timeouts": timeouts_service.state(db, game),
     }
 
 def get_game_summary(db: Session, game_id: int):
