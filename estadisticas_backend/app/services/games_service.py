@@ -4,7 +4,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
-from app.services import tournaments_service
+from app.services import standings_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -106,6 +106,9 @@ def end_quarter_and_advance(db: Session, game_id: int):
         "players_synced": len(players_on_court)
     }
 def create_game(db: Session, game_data: GameCreate) -> Game:
+    tournaments_service.validate_game_fit(
+        db, game_data.fk_home_id_team, game_data.fk_away_id_team,
+        getattr(game_data, 'fk_id_tournament_phase', None), getattr(game_data, 'fk_id_tournament_group', None))
     # Ahora incluimos los valores por defecto para el inicio del partido
     game = Game(
         location=game_data.location,
@@ -163,8 +166,11 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     was_finished = game.status == GameStatus.FINISHED.value
     for key, value in update_data.items():
         setattr(game, key, value)
-
     if not was_finished and game.status == GameStatus.FINISHED.value:
+        tournaments_service.assert_can_finish(db, game)
+
+    # Recalcula la tabla si el partido es (o dejó de ser) FINALIZADO, o si se corrigió su marcador
+    if was_finished or game.status == GameStatus.FINISHED.value:
         tournaments_service.apply_game_result(db, game)
 
     db.commit()
@@ -177,9 +183,12 @@ def delete_game(db:Session, game_id:int) -> bool:
     if not game:
         return False
     
+    phase_id, group_id = game.fk_id_tournament_phase, game.fk_id_tournament_group
     db.delete(game)
+    db.flush()
+    tournaments_service.on_game_changed(db, phase_id, group_id)
     db.commit()
-    return True    
+    return True
 
 def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, quarter: int = None):
     """
@@ -293,6 +302,10 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
                 detail=f"Player {player_id} does not belong to away team {away_team_id}"
             )
 
+
+    tournaments_service.validate_game_fit(
+        db, home_team_id, away_team_id,
+        getattr(game_data, 'fk_id_tournament_phase', None), getattr(game_data, 'fk_id_tournament_group', None))
 
     # --- 4. CREACIÓN DEL JUEGO ---
     initial_status = normalize_game_status(game_data.status or "SCHEDULED")
@@ -660,6 +673,8 @@ def start_game(db: Session, game_id: int):
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
     game.status = GameStatus.IN_PROGRESS.value
+    if game.tournament_phase is not None:
+        tournaments_service.refresh_status(db, game.tournament_phase.fk_id_tournament)
     db.commit()
     db.refresh(game)
     return game
@@ -691,6 +706,7 @@ def finish_game(db: Session, game_id: int):
                     stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
             gp.last_entry_time_seconds = None
 
+    tournaments_service.assert_can_finish(db, game)
     game.remaining_time_seconds = game.live_remaining_seconds
     game.status = GameStatus.FINISHED.value
     game.is_paused = True
@@ -755,4 +771,29 @@ def pause_clock(db: Session, game_id: int):
         game.clock_started_at = None
         db.commit()
         db.refresh(game)
+    return game
+
+
+def forfeit_game(db: Session, game_id: int, loser_team_id: int):
+    """
+    Partido no disputado (W.O.): gana el rival 20-0, el ausente recibe 0 puntos de clasificación.
+    Solo si el partido aún no terminó.
+    """
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status == GameStatus.FINISHED.value:
+        raise HTTPException(status_code=409, detail="El partido ya finalizó")
+    if loser_team_id not in (game.fk_home_id_team, game.fk_away_id_team):
+        raise HTTPException(status_code=400, detail="El equipo no participa en este partido")
+    win, lose = standings_service.FORFEIT_SCORE
+    home_loses = loser_team_id == game.fk_home_id_team
+    game.home_score, game.away_score = (lose, win) if home_loses else (win, lose)
+    game.is_forfeit = True
+    game.status = GameStatus.FINISHED.value
+    game.is_paused = True
+    game.clock_started_at = None
+    tournaments_service.apply_game_result(db, game)
+    db.commit()
+    db.refresh(game)
     return game

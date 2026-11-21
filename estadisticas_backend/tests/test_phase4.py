@@ -120,6 +120,7 @@ class TestPermissions:
     @pytest.mark.parametrize("method,path", [
         ("DELETE", "/teams/1"), ("DELETE", "/games/1"), ("POST", "/teams/"), ("PUT", "/players/1"),
         ("POST", "/tournaments/"), ("PUT", "/games/1"), ("POST", "/games/with-players"),
+        ("POST", "/games/1/forfeit"), ("POST", "/tournaments/1/phases/2/generate"),
     ])
     def test_management_is_admin_only(self, method, path):
         assert allowed_roles_for(method, path) == {"admin"}

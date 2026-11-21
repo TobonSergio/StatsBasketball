@@ -1,6 +1,10 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
+from typing import Optional
+
+from app.core.enums import GameStatus, PhaseType, TournamentStatus, normalize_phase_type
+from app.services import bracket_service, standings_service
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import (
@@ -8,9 +12,9 @@ from app.models.tournaments import (
 )
 from app.schemas.tournaments import TournamentCreate
 
-# Puntos de clasificación FIBA
-POINTS_WIN = 2
-POINTS_LOSS = 1
+# Puntos de clasificación FIBA (ver standings_service)
+POINTS_WIN = standings_service.POINTS_WIN
+POINTS_LOSS = standings_service.POINTS_LOSS
 
 
 def create_tournament(db: Session, data: TournamentCreate) -> Tournament:
@@ -28,7 +32,10 @@ def create_tournament(db: Session, data: TournamentCreate) -> Tournament:
         status="upcoming",
     )
     for ph in data.phases:
-        phase = TournamentPhase(name=ph.name, type=ph.type, sequence_order=ph.sequence_order)
+        phase = TournamentPhase(
+            name=ph.name, type=ph.type, sequence_order=ph.sequence_order,
+            legs=ph.legs, advance_count=ph.advance_count,
+        )
         for g in ph.groups:
             group = TournamentGroup(name=g.name)
             for team_id in dict.fromkeys(g.team_ids):  # sin duplicados, conserva orden
@@ -81,6 +88,7 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
                 "id_game": g.id_game, "date": g.date, "location": g.location, "status": g.status,
                 "home_score": g.home_score, "away_score": g.away_score,
                 "current_quarter": g.current_quarter,
+                "round": g.round, "slot": g.slot, "is_forfeit": bool(g.is_forfeit),
                 "fk_home_id_team": g.fk_home_id_team, "fk_away_id_team": g.fk_away_id_team,
                 "fk_id_tournament_phase": g.fk_id_tournament_phase,
                 "fk_id_tournament_group": g.fk_id_tournament_group,
@@ -90,31 +98,29 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
 
     standings = []
     if group_ids:
-        rows = (
-            db.query(TournamentStanding)
-            .options(joinedload(TournamentStanding.team))
-            .filter(TournamentStanding.fk_id_group.in_(group_ids))
-            .order_by(
-                TournamentStanding.points.desc(),
-                (TournamentStanding.points_scored - TournamentStanding.points_received).desc(),
-                TournamentStanding.points_scored.desc(),
-            ).all()
-        )
-        for s in rows:
-            standings.append({
-                "fk_id_group": s.fk_id_group, "fk_id_team": s.fk_id_team,
-                "games_played": s.games_played, "wins": s.wins, "losses": s.losses,
-                "points": s.points, "points_scored": s.points_scored,
-                "points_received": s.points_received,
-                "team": {"id_team": s.team.id_team, "name": s.team.name} if s.team else None,
-            })
+        rows = db.query(TournamentStanding).options(joinedload(TournamentStanding.team)).filter(
+            TournamentStanding.fk_id_group.in_(group_ids)).all()
+        by_group: dict[int, dict[int, TournamentStanding]] = {}
+        for r in rows:
+            by_group.setdefault(r.fk_id_group, {})[r.fk_id_team] = r
+        for gid, teams in by_group.items():
+            for pos, line in enumerate(standings_service.ranked_group(db, gid), start=1):
+                s_ = teams[line.team_id]
+                standings.append({
+                    "fk_id_group": gid, "fk_id_team": s_.fk_id_team, "position": pos,
+                    "games_played": line.played, "wins": line.wins, "losses": line.losses,
+                    "points": line.points, "points_scored": line.scored,
+                    "points_received": line.received, "point_diff": line.diff,
+                    "team": {"id_team": s_.team.id_team, "name": s_.team.name} if s_.team else None,
+                })
 
     return {
         "tournament": tournament_to_dict(t),
         "phases": [
             {
                 "id_phase": p.id_phase, "fk_id_tournament": p.fk_id_tournament,
-                "name": p.name, "type": p.type, "sequence_order": p.sequence_order,
+                "name": p.name, "type": normalize_phase_type(p.type), "sequence_order": p.sequence_order,
+                "legs": p.legs or 1, "advance_count": p.advance_count,
                 "tournament_groups": [
                     {"id_group": g.id_group, "fk_id_phase": g.fk_id_phase, "name": g.name}
                     for g in p.groups
@@ -124,39 +130,117 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
         ],
         "games": games,
         "standings": standings,
+        "brackets": [
+            bracket_service.build(db, p) for p in t.phases
+            if normalize_phase_type(p.type) == PhaseType.KNOCKOUT.value and p.groups
+        ],
+        "champion": (
+            {"id_team": t.champion_team_id,
+             "name": getattr(db.get(Team, t.champion_team_id), "name", None)}
+            if t.champion_team_id else None
+        ),
     }
 
 
+def on_game_changed(db: Session, phase_id: Optional[int], group_id: Optional[int]) -> None:
+    """
+    Reacciona a un partido de torneo que se finalizó, corrigió, reabrió o borró (sin commit):
+    liga -> recalcula posiciones; playoffs -> avanza/ajusta la llave. Luego actualiza estado y campeón.
+    """
+    if phase_id is None:
+        return
+    phase = db.get(TournamentPhase, phase_id)
+    if not phase:
+        return
+    if normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value:
+        bracket_service.advance(db, phase)
+    else:
+        standings_service.recompute_group(db, group_id)
+    refresh_status(db, phase.fk_id_tournament)
+
+
 def apply_game_result(db: Session, game: Game) -> bool:
-    """
-    Actualiza la tabla de posiciones al finalizar un partido de torneo.
-    NO hace commit (lo hace el llamador, en la misma transacción que el cierre).
-    Debe llamarse una sola vez por partido (cuando pasa a FINISHED).
-    Victoria = 2 pts, derrota = 1 pt. Un empate (no previsto en baloncesto) suma 1 a cada uno.
-    """
-    if game.fk_id_tournament_group is None:
+    """Compatibilidad: ver on_game_changed. NO hace commit."""
+    if game.fk_id_tournament_phase is None:
         return False
-
-    rows = db.query(TournamentStanding).filter(
-        TournamentStanding.fk_id_group == game.fk_id_tournament_group,
-        TournamentStanding.fk_id_team.in_([game.fk_home_id_team, game.fk_away_id_team]),
-    ).all()
-    by_team = {r.fk_id_team: r for r in rows}
-    home, away = by_team.get(game.fk_home_id_team), by_team.get(game.fk_away_id_team)
-    if not home or not away:
-        return False
-
-    hs, as_ = game.home_score or 0, game.away_score or 0
-    for row, scored, received in ((home, hs, as_), (away, as_, hs)):
-        row.games_played += 1
-        row.points_scored += scored
-        row.points_received += received
-        if scored > received:
-            row.wins += 1
-            row.points += POINTS_WIN
-        elif scored < received:
-            row.losses += 1
-            row.points += POINTS_LOSS
-        else:
-            row.points += 1
+    on_game_changed(db, game.fk_id_tournament_phase, game.fk_id_tournament_group)
     return True
+
+
+def assert_can_finish(db: Session, game: Game) -> None:
+    """En playoffs no puede haber empate: debe jugarse tiempo extra."""
+    if game.fk_id_tournament_phase is None:
+        return
+    phase = db.get(TournamentPhase, game.fk_id_tournament_phase)
+    if phase and normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value             and (game.home_score or 0) == (game.away_score or 0):
+        raise HTTPException(status_code=409, detail="Empate en playoffs: juega tiempo extra antes de finalizar")
+
+
+def refresh_status(db: Session, tournament_id: int) -> None:
+    """Estado del torneo (upcoming/in_progress/finished) y campeón, derivados de los partidos."""
+    t = db.get(Tournament, tournament_id)
+    if not t:
+        return
+    db.flush()
+    phases = db.query(TournamentPhase).filter(
+        TournamentPhase.fk_id_tournament == tournament_id).order_by(TournamentPhase.sequence_order).all()
+    phase_ids = [p.id_phase for p in phases]
+    games = db.query(Game).filter(Game.fk_id_tournament_phase.in_(phase_ids)).all() if phase_ids else []
+
+    champion = None
+    if phases and games:
+        last = phases[-1]
+        if normalize_phase_type(last.type) == PhaseType.KNOCKOUT.value:
+            structure = bracket_service.build(db, last)
+            champ = structure.get("champion") if structure.get("generated") else None
+            champion = champ["id_team"] if champ else None
+        else:
+            last_games = [g for g in games if g.fk_id_tournament_phase == last.id_phase]
+            if last_games and all(g.status == GameStatus.FINISHED.value for g in last_games)                     and len(last.groups) == 1:
+                ranked = standings_service.ranked_group(db, last.groups[0].id_group)
+                champion = ranked[0].team_id if ranked else None
+
+    if champion:
+        t.status, t.champion_team_id = TournamentStatus.FINISHED.value, champion
+    else:
+        t.champion_team_id = None
+        started = any(g.status != GameStatus.SCHEDULED.value for g in games)
+        t.status = TournamentStatus.IN_PROGRESS.value if started else TournamentStatus.UPCOMING.value
+
+
+def validate_game_fit(
+    db: Session, home_id: int, away_id: int, phase_id: Optional[int], group_id: Optional[int],
+) -> None:
+    """
+    Reglas para crear a mano un partido de torneo:
+    - local y visitante distintos y ambos inscritos en el grupo;
+    - liga: no más enfrentamientos entre los mismos equipos que vueltas (legs);
+    - playoffs: los cruces los genera la llave, no se crean a mano.
+    """
+    if home_id == away_id:
+        raise HTTPException(status_code=400, detail="Un equipo no puede jugar contra sí mismo")
+    if phase_id is None:
+        return
+    phase = db.get(TournamentPhase, phase_id)
+    if not phase:
+        raise HTTPException(status_code=400, detail="Fase de torneo inexistente")
+    if normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Los partidos de playoffs se generan automáticamente con la llave (Generar llaves)")
+    if group_id is None:
+        return
+    group = db.get(TournamentGroup, group_id)
+    if not group or group.fk_id_phase != phase_id:
+        raise HTTPException(status_code=400, detail="El grupo no pertenece a la fase indicada")
+    enrolled = {tid for (tid,) in db.query(TournamentStanding.fk_id_team).filter(
+        TournamentStanding.fk_id_group == group_id)}
+    if home_id not in enrolled or away_id not in enrolled:
+        raise HTTPException(status_code=400, detail="Ambos equipos deben estar inscritos en el grupo")
+    repeated = db.query(Game).filter(
+        Game.fk_id_tournament_group == group_id,
+        ((Game.fk_home_id_team == home_id) & (Game.fk_away_id_team == away_id))
+        | ((Game.fk_home_id_team == away_id) & (Game.fk_away_id_team == home_id)),
+    ).count()
+    if repeated >= (phase.legs or 1):
+        raise HTTPException(status_code=409, detail="Estos equipos ya tienen programados todos sus partidos en este grupo")

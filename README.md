@@ -27,6 +27,18 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
 - **Roles** `admin` · `scorer` · `viewer`, y **auditoría** de cada acción de la mesa.
 - **Exportación** del box score en CSV.
 
+## Torneos
+
+- **Liga (`round_robin`)**: calendario por jornadas (método del círculo, descanso si el número es impar,
+  ida y vuelta opcional). Posiciones recalculadas desde los partidos: victoria 2, derrota 1, W.O. 0;
+  desempate FIBA (resultado entre empatados, diferencia, puntos a favor).
+- **Playoffs (`knockout`)**: partido único, siembra estándar y pases directos (byes) a los mejores sembrados.
+  El ganador avanza solo; el campeón y el estado del torneo se derivan de los partidos. Un empate no se
+  puede finalizar (tiempo extra).
+- **Liga + Playoffs (`league_playoffs`)**: los mejores de la tabla (`advance_count`) siembran la llave.
+- Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
+  `bracket_service`.
+
 ## Roles
 
 El rol sale de `app_metadata.role` del JWT. Quien no tenga rol usa `DEFAULT_ROLE` (por defecto
@@ -118,6 +130,8 @@ erDiagram
 | `POST /games/{id}/end-quarter` · `/overtime` | scorer | Cambio de periodo / tiempo extra |
 | `POST /events/` · `DELETE /events/{id}` | scorer | Registrar / deshacer una acción |
 | `GET /games/{id}/box-score.csv` | viewer | Exporta el box score |
+| `POST /tournaments/{id}/phases/{fase}/generate` | admin | Genera el calendario de liga o la llave de playoffs de la fase |
+| `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |
 | `GET /public/games` · `/public/games/{id}/live` | **público** | Vista de espectadores |
 | `GET /health` | **público** | Health check |
