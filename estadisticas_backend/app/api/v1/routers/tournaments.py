@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
-from app.schemas.tournaments import TournamentCreate
-from app.services import tournaments_service
+from app.schemas.tournaments import GenerateRequest, TournamentCreate
+from app.services import audit_service, scheduling_service, tournaments_service
 
 router = APIRouter(prefix="/tournaments", tags=["Tournaments"])
 
@@ -29,3 +30,19 @@ def list_tournaments(
 @router.get("/{tournament_id}")
 def get_tournament(tournament_id: int, db: Session = Depends(get_db)):
     return tournaments_service.get_tournament_detail(db, tournament_id)
+
+
+@router.post("/{tournament_id}/phases/{phase_id}/generate")
+def generate_phase(
+    tournament_id: int,
+    phase_id: int,
+    options: GenerateRequest = GenerateRequest(),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Genera los partidos de la fase: calendario de liga (todos contra todos)."""
+    result = scheduling_service.generate_round_robin(
+        db, tournament_id, phase_id, options.start_date, options.interval_days, options.location,
+    )
+    audit_service.record(db, user, "tournament.generate", "tournament", tournament_id, details=result)
+    return result

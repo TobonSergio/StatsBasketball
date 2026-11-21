@@ -32,3 +32,10 @@ class TournamentCreate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     phases: List[PhaseCreate] = []
+
+
+class GenerateRequest(BaseModel):
+    """Opciones para generar el calendario (liga) o la llave (playoffs) de una fase."""
+    start_date: Optional[datetime] = None
+    interval_days: int = Field(default=7, ge=1, le=60)
+    location: Optional[str] = Field(default=None, max_length=100)
