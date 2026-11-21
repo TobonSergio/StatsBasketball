@@ -110,3 +110,61 @@ def test_knockout_games_do_not_create_standings_changes(db, two_teams):
     games_service.finish_game(db, g.id_game)
     assert all(r.games_played == 0 for r in db.query(TournamentStanding).all())
     assert standings_service.group_is_round_robin(db, t.phases[0].groups[0].id_group) is False
+
+
+# ── validaciones de creación y forfeit ────────────────────────────────────────────────────
+import pytest
+from fastapi import HTTPException
+
+from app.schemas.games import GameCreate
+
+
+def _gc(h, a, t):
+    ph = t.phases[0]
+    return GameCreate(location="X", date=datetime(2026, 1, 1), fk_home_id_team=h.id_team,
+                      fk_away_id_team=a.id_team, fk_id_tournament_phase=ph.id_phase,
+                      fk_id_tournament_group=ph.groups[0].id_group)
+
+
+def test_create_game_validations(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    c, outsider = Team(name="Charlie"), Team(name="Zulu")
+    db.add_all([c, outsider])
+    db.commit()
+    t = _league(db, a, b, c)
+    with pytest.raises(HTTPException) as e:
+        games_service.create_game(db, _gc(a, a, t))
+    assert e.value.status_code == 400
+    with pytest.raises(HTTPException) as e:
+        games_service.create_game(db, _gc(a, outsider, t))
+    assert e.value.status_code == 400
+    games_service.create_game(db, _gc(a, b, t))
+    with pytest.raises(HTTPException) as e:  # solo ida: el cruce ya existe (en cualquier localía)
+        games_service.create_game(db, _gc(b, a, t))
+    assert e.value.status_code == 409
+
+
+def test_manual_games_in_knockout_phase_are_rejected(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    t = tournaments_service.create_tournament(db, TournamentCreate(
+        name="K", phases=[PhaseCreate(name="Llave", type="knockout", groups=[
+            GroupCreate(name="L", team_ids=[a.id_team, b.id_team])])]))
+    with pytest.raises(HTTPException) as e:
+        games_service.create_game(db, _gc(a, b, t))
+    assert e.value.status_code == 409
+
+
+def test_forfeit_gives_20_0_and_zero_points_to_absent_team(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    c = Team(name="Charlie")
+    db.add(c)
+    db.commit()
+    t = _league(db, a, b, c)
+    g = _game(db, t, a, b, 0, 0, status="SCHEDULED")
+    games_service.forfeit_game(db, g.id_game, loser_team_id=b.id_team)
+    rows = {r.fk_id_team: r for r in db.query(TournamentStanding).all()}
+    assert (rows[a.id_team].points, rows[a.id_team].points_scored) == (2, 20)
+    assert (rows[b.id_team].points, rows[b.id_team].losses) == (0, 1)
+    with pytest.raises(HTTPException) as e:
+        games_service.forfeit_game(db, g.id_game, loser_team_id=b.id_team)
+    assert e.value.status_code == 409

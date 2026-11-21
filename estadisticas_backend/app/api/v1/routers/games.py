@@ -164,6 +164,22 @@ def finish_game(game_id: int, db: Session = Depends(get_db), user: dict = Depend
     return game
 
 
+@router.post("/{game_id}/forfeit", response_model=GameResponse)
+def forfeit_game(
+    game_id: int,
+    loser_team_id: int = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """W.O.: el rival gana 20-0 y el ausente suma 0 puntos de clasificación (solo admin)."""
+    game = games_service.forfeit_game(db, game_id, loser_team_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.forfeit", "game", game_id, game_id=game_id,
+                         details={"loser_team_id": loser_team_id})
+    return game
+
+
 @router.post("/{game_id}/clock/start", response_model=GameResponse)
 def start_game_clock(game_id: int, db: Session = Depends(get_db)):
     """Arranca el reloj en el servidor (idempotente). El tiempo real lo calcula el servidor."""

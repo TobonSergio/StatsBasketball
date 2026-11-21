@@ -206,3 +206,41 @@ def refresh_status(db: Session, tournament_id: int) -> None:
         t.champion_team_id = None
         started = any(g.status != GameStatus.SCHEDULED.value for g in games)
         t.status = TournamentStatus.IN_PROGRESS.value if started else TournamentStatus.UPCOMING.value
+
+
+def validate_game_fit(
+    db: Session, home_id: int, away_id: int, phase_id: Optional[int], group_id: Optional[int],
+) -> None:
+    """
+    Reglas para crear a mano un partido de torneo:
+    - local y visitante distintos y ambos inscritos en el grupo;
+    - liga: no más enfrentamientos entre los mismos equipos que vueltas (legs);
+    - playoffs: los cruces los genera la llave, no se crean a mano.
+    """
+    if home_id == away_id:
+        raise HTTPException(status_code=400, detail="Un equipo no puede jugar contra sí mismo")
+    if phase_id is None:
+        return
+    phase = db.get(TournamentPhase, phase_id)
+    if not phase:
+        raise HTTPException(status_code=400, detail="Fase de torneo inexistente")
+    if normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Los partidos de playoffs se generan automáticamente con la llave (Generar llaves)")
+    if group_id is None:
+        return
+    group = db.get(TournamentGroup, group_id)
+    if not group or group.fk_id_phase != phase_id:
+        raise HTTPException(status_code=400, detail="El grupo no pertenece a la fase indicada")
+    enrolled = {tid for (tid,) in db.query(TournamentStanding.fk_id_team).filter(
+        TournamentStanding.fk_id_group == group_id)}
+    if home_id not in enrolled or away_id not in enrolled:
+        raise HTTPException(status_code=400, detail="Ambos equipos deben estar inscritos en el grupo")
+    repeated = db.query(Game).filter(
+        Game.fk_id_tournament_group == group_id,
+        ((Game.fk_home_id_team == home_id) & (Game.fk_away_id_team == away_id))
+        | ((Game.fk_home_id_team == away_id) & (Game.fk_away_id_team == home_id)),
+    ).count()
+    if repeated >= (phase.legs or 1):
+        raise HTTPException(status_code=409, detail="Estos equipos ya tienen programados todos sus partidos en este grupo")
