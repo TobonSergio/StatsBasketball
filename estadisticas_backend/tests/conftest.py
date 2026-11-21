@@ -42,3 +42,13 @@ def two_teams(db):
     db.add_all(pa + pb)
     db.commit()
     return a, b, pa, pb
+
+
+@pytest.fixture(autouse=True)
+def _fixed_now(monkeypatch):
+    """Reloj fijo (1/1/2020) para que los tests no dependan de la fecha real; la regla 'no al pasado' se prueba aparte."""
+    from datetime import datetime
+
+    from app.services import scheduling_service
+
+    monkeypatch.setattr(scheduling_service, "now_local", lambda: datetime(2020, 1, 1, 12, 0))
