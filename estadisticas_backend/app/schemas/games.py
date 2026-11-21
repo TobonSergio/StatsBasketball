@@ -64,6 +64,11 @@ class GameResponse(GameBase):
     # Estos campos permitirán que el nombre del equipo viaje al Front
     home_team: Optional[TeamSimple] = None
     away_team: Optional[TeamSimple] = None
+    tournament_id: Optional[int] = None
+    tournament_name: Optional[str] = None
+    phase_name: Optional[str] = None
+    group_name: Optional[str] = None
+    is_friendly: bool = True
 
     class Config:
 

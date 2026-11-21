@@ -80,3 +80,19 @@ def test_non_tournament_game_does_not_touch_standings(db, two_teams):
     db.add(game)
     db.commit()
     assert games_service.finish_game(db, game.id_game).status == "FINISHED"
+
+
+def test_game_list_exposes_tournament_info(db, two_teams):
+    from app.schemas.games import GameResponse
+
+    a, b = two_teams[0], two_teams[1]
+    t = make_tournament(db, a, b)
+    make_game(db, a, b, t)
+    friendly = Game(location="Y", date=datetime(2025, 1, 2), fk_home_id_team=a.id_team, fk_away_id_team=b.id_team)
+    db.add(friendly)
+    db.commit()
+    out = [GameResponse.model_validate(g) for g in games_service.get_games(db)]
+    tourn = next(g for g in out if not g.is_friendly)
+    assert (tourn.tournament_name, tourn.phase_name, tourn.group_name) == ("Copa", "Grupos", "A")
+    assert tourn.tournament_id == t.id_tournament
+    assert next(g for g in out if g.is_friendly).tournament_name is None

@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
 from app.core.enums import GameStatus, normalize_game_status
+from app.models.tournaments import TournamentPhase
 from app.services import tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
@@ -127,7 +128,9 @@ def get_games(db: Session, skip: int = 0, limit: int = 500):
     return db.query(Game)\
         .options(
             joinedload(Game.home_team), # <--- Carga los datos del equipo local
-            joinedload(Game.away_team)  # <--- Carga los datos del equipo visitante
+            joinedload(Game.away_team),  # <--- Carga los datos del equipo visitante
+            joinedload(Game.tournament_phase).joinedload(TournamentPhase.tournament),
+            joinedload(Game.tournament_group),
         )\
         .order_by(Game.id_game)\
         .offset(skip).limit(limit)\
