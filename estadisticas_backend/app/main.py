@@ -35,12 +35,19 @@ if not ALLOWED_ORIGINS:
 if IS_PRODUCTION and not AUTH_REQUIRED:
     raise RuntimeError("AUTH_REQUIRED=false no está permitido en producción")
 
+_DEV_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$"
+)
+
 app = FastAPI(title="Basketball Stats API")
 
 # 1. CORS — siempre antes de los routers. La auth va por header Bearer, no cookies.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    # Solo desarrollo: acepta localhost y redes privadas (abrir Vite por IP de LAN). Nunca en producción.
+    allow_origin_regex=None if IS_PRODUCTION else _DEV_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
