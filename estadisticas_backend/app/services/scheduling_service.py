@@ -27,6 +27,8 @@ MAX_GAMES_PER_DAY = int(os.getenv("MAX_GAMES_PER_DAY", "2"))
 COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
 
 
+# Un partido programado cuya hora pasó hace más de esto y no se inició se considera "atrasado"
+OVERDUE_GRACE_MINUTES = int(os.getenv("OVERDUE_GRACE_MINUTES", "30"))
 PAST_TOLERANCE_MINUTES = 5  # holgura por diferencias de reloj entre el navegador y el servidor
 
 
@@ -76,6 +78,7 @@ def find_conflict(
     nearby = db.query(Game).filter(
         (Game.fk_home_id_team.in_(team_ids)) | (Game.fk_away_id_team.in_(team_ids)),
         Game.date.isnot(None),
+        Game.status != GameStatus.CANCELLED.value,  # un partido cancelado no ocupa la agenda
         Game.date > when - timedelta(hours=24),
         Game.date < when + timedelta(hours=24),
     ).all()

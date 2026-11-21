@@ -88,7 +88,7 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
                 "id_game": g.id_game, "date": g.date, "location": g.location, "status": g.status,
                 "home_score": g.home_score, "away_score": g.away_score,
                 "current_quarter": g.current_quarter,
-                "round": g.round, "slot": g.slot, "is_forfeit": bool(g.is_forfeit),
+                "round": g.round, "slot": g.slot, "is_forfeit": bool(g.is_forfeit), "is_overdue": g.is_overdue,
                 "fk_home_id_team": g.fk_home_id_team, "fk_away_id_team": g.fk_away_id_team,
                 "fk_id_tournament_phase": g.fk_id_tournament_phase,
                 "fk_id_tournament_group": g.fk_id_tournament_group,

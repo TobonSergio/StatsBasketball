@@ -23,6 +23,10 @@ class Game(Base):
     status = Column(String(20), nullable=False, server_default="SCHEDULED")
 
     
+    # Hora real (UTC) en que el partido se inició y se cerró; NULL si aún no / no aplica (p. ej. W.O.)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
     # Torneos: jornada (liga) o ronda (llave) y posición dentro de la ronda
     round = Column(Integer, nullable=True)
     slot = Column(Integer, nullable=True)
@@ -58,6 +62,19 @@ class Game(Base):
     def live_remaining_seconds(self):
         from app.core.clock import live_remaining
         return live_remaining(self.remaining_time_seconds, self.clock_started_at, self.is_paused)
+
+    @property
+    def is_overdue(self):
+        """Programado, con la hora ya pasada (más la gracia) y sin iniciarse: requiere decisión del admin."""
+        from datetime import timedelta
+
+        from app.core.enums import GameStatus
+        from app.services import scheduling_service
+
+        if self.status != GameStatus.SCHEDULED.value or self.date is None:
+            return False
+        limit = timedelta(minutes=scheduling_service.OVERDUE_GRACE_MINUTES)
+        return self.date < scheduling_service.now_local() - limit
 
     @property
     def tournament_id(self):
