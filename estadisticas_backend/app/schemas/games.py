@@ -64,6 +64,7 @@ class GameResponse(GameBase):
     # Estos campos permitirán que el nombre del equipo viaje al Front
     home_team: Optional[TeamSimple] = None
     away_team: Optional[TeamSimple] = None
+    live_remaining_seconds: Optional[int] = None  # reloj real calculado por el servidor
     tournament_id: Optional[int] = None
     tournament_name: Optional[str] = None
     phase_name: Optional[str] = None

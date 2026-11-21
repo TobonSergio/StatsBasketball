@@ -12,6 +12,8 @@ class Game(Base):
     current_quarter = Column(Integer, default=1)
     remaining_time_seconds = Column(Integer, default=600)
     is_paused = Column(Boolean, default=True)
+    # Reloj autoritativo: instante en que arrancó (NULL = en pausa). Ver app/core/clock.py
+    clock_started_at = Column(DateTime(timezone=True), nullable=True)
     # Configuración del reglamento (antes fija en 600 s / 4 cuartos)
     quarter_seconds = Column(Integer, nullable=False, default=600, server_default="600")
     num_quarters = Column(Integer, nullable=False, default=4, server_default="4")
@@ -46,6 +48,11 @@ class Game(Base):
     tournament_group = relationship("TournamentGroup", foreign_keys=[fk_id_tournament_group], lazy="select")
 
     # Datos derivados para el listado (el front ya no consulta torneos por su cuenta)
+    @property
+    def live_remaining_seconds(self):
+        from app.core.clock import live_remaining
+        return live_remaining(self.remaining_time_seconds, self.clock_started_at, self.is_paused)
+
     @property
     def tournament_id(self):
         phase = self.tournament_phase

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
+from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
 from app.services import tournaments_service
@@ -50,7 +51,7 @@ def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: 
         GamePlayer.fk_id_team == team_id
     ).update({"is_on_court": False, "last_entry_time_seconds": None}, synchronize_session=False)
 
-    entry_time = game.remaining_time_seconds if game.remaining_time_seconds is not None else game.quarter_seconds
+    entry_time = game.live_remaining_seconds
     db.query(GamePlayer).filter(
         GamePlayer.id_game_player.in_(game_player_ids)
     ).update({"is_on_court": True, "last_entry_time_seconds": entry_time}, synchronize_session=False)
@@ -92,6 +93,8 @@ def end_quarter_and_advance(db: Session, game_id: int):
     game.current_quarter += 1
     # Reseteamos el reloj del juego a la duración configurada del cuarto
     game.remaining_time_seconds = game.quarter_seconds
+    game.is_paused = True
+    game.clock_started_at = None
     
     db.commit()
     db.refresh(game)
@@ -187,6 +190,7 @@ def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, qua
     if game:
         game.remaining_time_seconds = seconds
         game.is_paused = paused
+        game.clock_started_at = None if paused else utcnow()
         if quarter:
             game.current_quarter = quarter
         db.commit()
@@ -407,7 +411,8 @@ def get_live_game_status(db: Session, game_id: int):
     return {
         "id_game": game.id_game,
         "current_quarter": game.current_quarter,
-        "remaining_time_seconds": game.remaining_time_seconds,
+        "remaining_time_seconds": game.live_remaining_seconds,
+        "live_remaining_seconds": game.live_remaining_seconds,
         "score": {
             "home": game.home_score,
             "away": game.away_score
@@ -623,6 +628,11 @@ def swap_players(db: Session, player_out_id: int, player_in_id: int, current_gam
     if gp_in.is_on_court:
         raise HTTPException(status_code=400, detail="El jugador que entra ya está en cancha")
 
+    # Con el reloj corriendo manda el tiempo del servidor, no el que envíe el cliente
+    game = get_game_by_id(db, gp_out.fk_id_game)
+    if game and not game.is_paused:
+        current_game_time = game.live_remaining_seconds
+
     if gp_out.last_entry_time_seconds is not None:
         time_diff = gp_out.last_entry_time_seconds - current_game_time
         if time_diff > 0:
@@ -672,7 +682,7 @@ def finish_game(db: Session, game_id: int):
     ).all()
     for gp in on_court:
         if gp.last_entry_time_seconds is not None:
-            played = gp.last_entry_time_seconds - (game.remaining_time_seconds or 0)
+            played = gp.last_entry_time_seconds - game.live_remaining_seconds
             if played > 0:
                 stats = db.query(PlayerStats).filter(
                     PlayerStats.fk_id_game_player == gp.id_game_player
@@ -681,8 +691,10 @@ def finish_game(db: Session, game_id: int):
                     stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
             gp.last_entry_time_seconds = None
 
+    game.remaining_time_seconds = game.live_remaining_seconds
     game.status = GameStatus.FINISHED.value
     game.is_paused = True
+    game.clock_started_at = None
     tournaments_service.apply_game_result(db, game)
     db.commit()
     db.refresh(game)
@@ -702,6 +714,7 @@ def start_overtime(db: Session, game_id: int, overtime_seconds: int = 300):
     game = get_game_by_id(db, game_id)
     game.remaining_time_seconds = overtime_seconds
     game.is_paused = True
+    game.clock_started_at = None
     # Los jugadores en cancha entran al OT con la duración del OT como marca de entrada
     db.query(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
@@ -712,3 +725,34 @@ def start_overtime(db: Session, game_id: int, overtime_seconds: int = 300):
     result["message"] = f"Tiempo extra iniciado (periodo {game.current_quarter})"
     result["remaining_time_seconds"] = overtime_seconds
     return result
+
+
+def start_clock(db: Session, game_id: int):
+    """Arranca el reloj en el servidor (idempotente). Devuelve el partido o None."""
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status == GameStatus.FINISHED.value:
+        raise HTTPException(status_code=409, detail="El partido ya finalizó")
+    if game.is_paused or game.clock_started_at is None:
+        game.is_paused = False
+        game.clock_started_at = utcnow()
+        db.commit()
+        db.refresh(game)
+    return game
+
+
+def pause_clock(db: Session, game_id: int):
+    """Pausa el reloj conservando el tiempo realmente transcurrido (idempotente)."""
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if not game.is_paused:
+        game.remaining_time_seconds = live_remaining(
+            game.remaining_time_seconds, game.clock_started_at, game.is_paused
+        )
+        game.is_paused = True
+        game.clock_started_at = None
+        db.commit()
+        db.refresh(game)
+    return game

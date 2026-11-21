@@ -16,7 +16,10 @@ from app.api.v1.routers import games_players
 from app.api.v1.routers import events
 from app.api.v1.routers import stats
 from app.api.v1.routers import tournaments
-from app.core.auth import AUTH_REQUIRED, get_current_user
+from app.api.v1.routers import audit
+from app.api.v1.routers import public
+from app.core.auth import AUTH_REQUIRED
+from app.core.permissions import authorize
 
 # Orígenes permitidos (ALLOWED_ORIGINS, separados por comas).
 # En producción (ENVIRONMENT=production) es OBLIGATORIA; nunca se usa "*".
@@ -70,7 +73,7 @@ def health():
 
 
 # 2. ROUTERS (todos protegidos con JWT de Supabase)
-_protected = [Depends(get_current_user)]
+_protected = [Depends(authorize)]
 app.include_router(teams.router, dependencies=_protected)
 app.include_router(players.router, dependencies=_protected)
 app.include_router(games.router, dependencies=_protected)
@@ -78,3 +81,7 @@ app.include_router(games_players.router, dependencies=_protected)
 app.include_router(events.router, dependencies=_protected)
 app.include_router(stats.router, dependencies=_protected)
 app.include_router(tournaments.router, dependencies=_protected)
+app.include_router(audit.router, dependencies=_protected)
+
+# Vista pública de espectadores: SIN autenticación, solo lectura de datos deportivos
+app.include_router(public.router)

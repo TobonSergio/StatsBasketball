@@ -40,16 +40,27 @@ def test_auth_can_be_disabled_for_local_dev(monkeypatch):
     assert user(None)["sub"] == "dev"
 
 
-def test_all_routers_require_auth():
-    from fastapi.routing import APIRoute
+def test_all_routes_require_auth_except_health_and_public():
+    """
+    Se valida contra el OpenAPI generado (independiente de cómo FastAPI organice las rutas
+    internamente): toda operación debe declarar el esquema Bearer salvo /health y /public/*.
+    """
     from app.main import app
 
-    open_paths = {"/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
-    unprotected = []
-    for r in app.routes:
-        for route in getattr(r, "routes", [r]):
-            if isinstance(route, APIRoute) and route.path not in open_paths:
-                deps = {d.call for d in route.dependant.dependencies}
-                if auth.get_current_user not in deps:
-                    unprotected.append(route.path)
+    spec = app.openapi()
+    unprotected, public_paths, checked = [], [], 0
+    for path, operations in spec["paths"].items():
+        for method, op in operations.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            checked += 1
+            if path == "/health":
+                continue
+            if path.startswith("/public/"):
+                public_paths.append(path)
+                continue
+            if not op.get("security"):
+                unprotected.append(f"{method.upper()} {path}")
+    assert checked > 40, f"el test no está inspeccionando las rutas ({checked})"
     assert not unprotected, unprotected
+    assert public_paths, "debería existir la vista pública"

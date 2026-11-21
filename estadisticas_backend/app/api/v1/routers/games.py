@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
 from app.schemas.games import GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
-from app.services import games_service
+from app.core.auth import get_current_user
+from app.services import audit_service, export_service, games_service
 from app.schemas.games_players import GamePlayerResponse
 
 
@@ -39,9 +40,15 @@ def create_game_with_players(
 @router.patch("/substitution")
 def make_substitution(
     body: SubstitutionRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     result = games_service.swap_players(db, body.player_out_id, body.player_in_id, body.current_game_time)
+    gp_out = db.get(GamePlayer, body.player_out_id)
+    audit_service.record(db, user, "substitution", "game_player", body.player_in_id,
+                         game_id=gp_out.fk_id_game if gp_out else None,
+                         details={"out": body.player_out_id, "in": body.player_in_id,
+                                  "clock": body.current_game_time})
     return {"message": "Cambio realizado con éxito", "data": result}
 
 @router.get(
@@ -128,27 +135,64 @@ def update_game_timer(
 def start_overtime(
     game_id: int,
     overtime_seconds: int = Query(300, ge=1, le=3600),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     """Abre un tiempo extra de `overtime_seconds` (por defecto 5 min)."""
     result = games_service.start_overtime(db, game_id, overtime_seconds)
     if not result:
         raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.overtime", "game", game_id, game_id=game_id,
+                         details={"overtime_seconds": overtime_seconds})
     return result
 
 @router.post("/{game_id}/start", response_model=GameResponse)
-def start_game(game_id: int, db: Session = Depends(get_db)):
+def start_game(game_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     game = games_service.start_game(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.start", "game", game_id, game_id=game_id)
+    return game
+
+@router.post("/{game_id}/finish", response_model=GameResponse)
+def finish_game(game_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    game = games_service.finish_game(db, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.finish", "game", game_id, game_id=game_id,
+                         details={"home_score": game.home_score, "away_score": game.away_score})
+    return game
+
+
+@router.post("/{game_id}/clock/start", response_model=GameResponse)
+def start_game_clock(game_id: int, db: Session = Depends(get_db)):
+    """Arranca el reloj en el servidor (idempotente). El tiempo real lo calcula el servidor."""
+    game = games_service.start_clock(db, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     return game
 
-@router.post("/{game_id}/finish", response_model=GameResponse)
-def finish_game(game_id: int, db: Session = Depends(get_db)):
-    game = games_service.finish_game(db, game_id)
+
+@router.post("/{game_id}/clock/pause", response_model=GameResponse)
+def pause_game_clock(game_id: int, db: Session = Depends(get_db)):
+    """Pausa el reloj conservando el tiempo transcurrido (idempotente)."""
+    game = games_service.pause_clock(db, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     return game
+
+
+@router.get("/{game_id}/box-score.csv")
+def download_box_score(game_id: int, db: Session = Depends(get_db)):
+    """Box score del partido en CSV."""
+    content = export_service.box_score_csv(db, game_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Partido sin jugadores o inexistente")
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="box-score-{game_id}.csv"'},
+    )
 
 @router.delete(
     "/{game_id}",
@@ -164,10 +208,12 @@ def delete_game(game_id:int, db:Session = Depends(get_db)):
         )
         
 @router.post("/{game_id}/teams/{team_id}/starters")
-def set_starters(game_id: int, team_id: int, player_ids: list[int] = Body(..., min_length=1, max_length=12), db: Session = Depends(get_db)):
+def set_starters(game_id: int, team_id: int, player_ids: list[int] = Body(..., min_length=1, max_length=12), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     result = games_service.set_starting_five(db, game_id, team_id, player_ids)
     if not result:
         raise HTTPException(status_code=400, detail="Debes seleccionar exactamente 5 jugadores")
+    audit_service.record(db, user, "game.starters", "game", game_id, game_id=game_id,
+                         details={"team_id": team_id, "players": player_ids})
     return {"message": "Titulares listos"}
 
 @router.get("/{game_id}/lineup/{team_id}", response_model=list[GamePlayerResponse])
@@ -178,13 +224,12 @@ def read_current_lineup(game_id: int, team_id: int, db: Session = Depends(get_db
 # ... (todo tu código anterior igual)
 
 @router.post("/{game_id}/end-quarter")
-def end_game_quarter(game_id: int, db: Session = Depends(get_db)):
-    # Llama a la función que SÍ aumenta el cuarto
+def end_game_quarter(game_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     result = games_service.end_quarter_and_advance(db, game_id)
-    
     if not result:
         raise HTTPException(status_code=404, detail="Juego no encontrado")
-        
+    audit_service.record(db, user, "game.end_quarter", "game", game_id, game_id=game_id,
+                         details={"new_quarter": result.get("new_quarter")})
     return result
 
 @router.get("/{game_id}/summary")
