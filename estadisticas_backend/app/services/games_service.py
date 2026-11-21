@@ -4,7 +4,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
-from app.services import tournaments_service
+from app.services import standings_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -164,7 +164,8 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
     for key, value in update_data.items():
         setattr(game, key, value)
 
-    if not was_finished and game.status == GameStatus.FINISHED.value:
+    # Recalcula la tabla si el partido es (o dejó de ser) FINALIZADO, o si se corrigió su marcador
+    if was_finished or game.status == GameStatus.FINISHED.value:
         tournaments_service.apply_game_result(db, game)
 
     db.commit()
@@ -177,9 +178,11 @@ def delete_game(db:Session, game_id:int) -> bool:
     if not game:
         return False
     
+    group_id = game.fk_id_tournament_group
     db.delete(game)
+    standings_service.recompute_group(db, group_id)
     db.commit()
-    return True    
+    return True
 
 def update_game_clock(db: Session, game_id: int, seconds: int, paused: bool, quarter: int = None):
     """

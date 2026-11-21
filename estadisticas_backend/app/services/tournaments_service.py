@@ -2,6 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.enums import normalize_phase_type
+from app.services import standings_service
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import (
@@ -9,9 +10,9 @@ from app.models.tournaments import (
 )
 from app.schemas.tournaments import TournamentCreate
 
-# Puntos de clasificación FIBA
-POINTS_WIN = 2
-POINTS_LOSS = 1
+# Puntos de clasificación FIBA (ver standings_service)
+POINTS_WIN = standings_service.POINTS_WIN
+POINTS_LOSS = standings_service.POINTS_LOSS
 
 
 def create_tournament(db: Session, data: TournamentCreate) -> Tournament:
@@ -95,24 +96,21 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
 
     standings = []
     if group_ids:
-        rows = (
-            db.query(TournamentStanding)
-            .options(joinedload(TournamentStanding.team))
-            .filter(TournamentStanding.fk_id_group.in_(group_ids))
-            .order_by(
-                TournamentStanding.points.desc(),
-                (TournamentStanding.points_scored - TournamentStanding.points_received).desc(),
-                TournamentStanding.points_scored.desc(),
-            ).all()
-        )
-        for s in rows:
-            standings.append({
-                "fk_id_group": s.fk_id_group, "fk_id_team": s.fk_id_team,
-                "games_played": s.games_played, "wins": s.wins, "losses": s.losses,
-                "points": s.points, "points_scored": s.points_scored,
-                "points_received": s.points_received,
-                "team": {"id_team": s.team.id_team, "name": s.team.name} if s.team else None,
-            })
+        rows = db.query(TournamentStanding).options(joinedload(TournamentStanding.team)).filter(
+            TournamentStanding.fk_id_group.in_(group_ids)).all()
+        by_group: dict[int, dict[int, TournamentStanding]] = {}
+        for r in rows:
+            by_group.setdefault(r.fk_id_group, {})[r.fk_id_team] = r
+        for gid, teams in by_group.items():
+            for pos, line in enumerate(standings_service.ranked_group(db, gid), start=1):
+                s_ = teams[line.team_id]
+                standings.append({
+                    "fk_id_group": gid, "fk_id_team": s_.fk_id_team, "position": pos,
+                    "games_played": line.played, "wins": line.wins, "losses": line.losses,
+                    "points": line.points, "points_scored": line.scored,
+                    "points_received": line.received, "point_diff": line.diff,
+                    "team": {"id_team": s_.team.id_team, "name": s_.team.name} if s_.team else None,
+                })
 
     return {
         "tournament": tournament_to_dict(t),
@@ -135,34 +133,8 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
 
 def apply_game_result(db: Session, game: Game) -> bool:
     """
-    Actualiza la tabla de posiciones al finalizar un partido de torneo.
-    NO hace commit (lo hace el llamador, en la misma transacción que el cierre).
-    Debe llamarse una sola vez por partido (cuando pasa a FINISHED).
-    Victoria = 2 pts, derrota = 1 pt. Un empate (no previsto en baloncesto) suma 1 a cada uno.
+    Actualiza la tabla de posiciones del grupo del partido (solo fases de liga).
+    Recalcula desde los partidos finalizados, así que es idempotente y sirve igual al
+    finalizar, corregir o borrar un partido. NO hace commit.
     """
-    if game.fk_id_tournament_group is None:
-        return False
-
-    rows = db.query(TournamentStanding).filter(
-        TournamentStanding.fk_id_group == game.fk_id_tournament_group,
-        TournamentStanding.fk_id_team.in_([game.fk_home_id_team, game.fk_away_id_team]),
-    ).all()
-    by_team = {r.fk_id_team: r for r in rows}
-    home, away = by_team.get(game.fk_home_id_team), by_team.get(game.fk_away_id_team)
-    if not home or not away:
-        return False
-
-    hs, as_ = game.home_score or 0, game.away_score or 0
-    for row, scored, received in ((home, hs, as_), (away, as_, hs)):
-        row.games_played += 1
-        row.points_scored += scored
-        row.points_received += received
-        if scored > received:
-            row.wins += 1
-            row.points += POINTS_WIN
-        elif scored < received:
-            row.losses += 1
-            row.points += POINTS_LOSS
-        else:
-            row.points += 1
-    return True
+    return standings_service.recompute_group(db, game.fk_id_tournament_group)
