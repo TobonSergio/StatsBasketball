@@ -5,17 +5,85 @@ Liga (round robin): método del círculo. Con N equipos pares hay N-1 jornadas; 
 agrega un descanso ("bye") y hay N jornadas. Ida y vuelta (legs=2) repite el calendario invirtiendo
 local y visitante.
 """
-from datetime import datetime, timedelta
-from typing import Optional
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
+from app.models.teams import Team
 from app.models.tournaments import Tournament, TournamentPhase, TournamentStanding
 
 DEFAULT_LOCATION = "Por definir"
+
+# Disponibilidad de los equipos. No existe una norma universal; se toma como referencia el manual de los
+# Youth EuroBasket de FIBA (partidos separados al menos 2 h 30 min) y las guías juveniles de la NBA/USA
+# Basketball (máximo 2 partidos por día). Ajustables por variable de entorno.
+MIN_REST_MINUTES = int(os.getenv("MIN_REST_MINUTES", "180"))
+MAX_GAMES_PER_DAY = int(os.getenv("MAX_GAMES_PER_DAY", "2"))
+COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
+
+
+def to_local_naive(when: datetime) -> datetime:
+    """Las fechas se guardan sin zona, en hora de Colombia."""
+    if when.tzinfo is not None:
+        return when.astimezone(COLOMBIA_UTC_OFFSET).replace(tzinfo=None)
+    return when
+
+
+def _fmt(when: datetime) -> str:
+    return when.strftime("%d/%m %H:%M")
+
+
+def find_conflict(
+    db: Session, team_ids: Iterable[int], when: datetime, exclude_game_id: Optional[int] = None,
+    ignore_game_ids: Iterable[int] = (),
+) -> Optional[str]:
+    """Mensaje del primer conflicto de agenda de alguno de los equipos en `when`, o None si todo bien."""
+    when = to_local_naive(when)
+    team_ids = list(dict.fromkeys(team_ids))
+    skip = set(ignore_game_ids) | ({exclude_game_id} if exclude_game_id else set())
+    nearby = db.query(Game).filter(
+        (Game.fk_home_id_team.in_(team_ids)) | (Game.fk_away_id_team.in_(team_ids)),
+        Game.date.isnot(None),
+        Game.date > when - timedelta(hours=24),
+        Game.date < when + timedelta(hours=24),
+    ).all()
+    names = {t.id_team: t.name for t in db.query(Team).filter(Team.id_team.in_(team_ids))}
+    gap = timedelta(minutes=MIN_REST_MINUTES)
+    for team_id in team_ids:
+        theirs = [g for g in nearby if g.id_game not in skip and team_id in (g.fk_home_id_team, g.fk_away_id_team)]
+        for g in theirs:
+            if abs(g.date - when) < gap:
+                rival = g.fk_away_id_team if g.fk_home_id_team == team_id else g.fk_home_id_team
+                rival_name = db.get(Team, rival).name if db.get(Team, rival) else "otro equipo"
+                hours = MIN_REST_MINUTES / 60
+                return (
+                    f"{names.get(team_id, 'Un equipo')} ya tiene un partido el {_fmt(g.date)} (vs {rival_name}). "
+                    f"Debe haber al menos {hours:g} h entre los partidos de un mismo equipo."
+                )
+        same_day = [g for g in theirs if g.date.date() == when.date()]
+        if len(same_day) + 1 > MAX_GAMES_PER_DAY:
+            return (
+                f"{names.get(team_id, 'Un equipo')} ya tiene {len(same_day)} partidos el {when.strftime('%d/%m')}. "
+                f"El máximo es {MAX_GAMES_PER_DAY} por día."
+            )
+    return None
+
+
+def assert_teams_available(
+    db: Session, home_id: int, away_id: int, when: Optional[datetime], exclude_game_id: Optional[int] = None,
+    ignore_game_ids: Iterable[int] = (),
+) -> None:
+    """409 si local o visitante ya juegan muy cerca de esa fecha, o ya alcanzaron el máximo del día."""
+    if when is None:
+        return
+    message = find_conflict(db, [home_id, away_id], when, exclude_game_id, ignore_game_ids)
+    if message:
+        raise HTTPException(status_code=409, detail=message)
 
 
 def circle_schedule(team_ids: list[int]) -> list[list[tuple[int, int]]]:
@@ -97,6 +165,8 @@ def generate_round_robin(
         for r_idx, pairs in enumerate(schedule, start=1):
             when = (base_date + timedelta(days=(r_idx - 1) * interval_days)).replace(tzinfo=None)
             for slot, (home, away) in enumerate(pairs, start=1):
+                # choca con un amistoso u otro partido ya agendado de esos equipos
+                assert_teams_available(db, home, away, when)
                 db.add(Game(
                     location=place, date=when, status=GameStatus.SCHEDULED.value,
                     fk_home_id_team=home, fk_away_id_team=away,

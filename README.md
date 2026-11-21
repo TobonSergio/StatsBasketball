@@ -36,6 +36,9 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
   El ganador avanza solo; el campeón y el estado del torneo se derivan de los partidos. Un empate no se
   puede finalizar (tiempo extra).
 - **Liga + Playoffs (`league_playoffs`)**: los mejores de la tabla (`advance_count`) siembran la llave.
+- **Agenda de equipos**: al crear, mover o generar partidos se valida que ningún equipo juegue con menos de 3 h
+  entre inicios ni más de 2 partidos al día (referencia: manual Youth EuroBasket de FIBA y guías juveniles
+  NBA/USA Basketball); si no se cumple, la API responde 409 con el choque exacto.
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
@@ -89,6 +92,8 @@ Frontend: ver el README de `StastBasketBallFrontend`.
 | `DEFAULT_ROLE` | no | Rol de usuarios sin rol (`admin` por defecto) |
 | `AUTH_REQUIRED` | no | `false` solo en desarrollo |
 | `SQL_ECHO` | no | `true` imprime el SQL |
+| `MIN_REST_MINUTES` | no | Descanso mínimo entre partidos de un mismo equipo, en minutos (180 por defecto) |
+| `MAX_GAMES_PER_DAY` | no | Máximo de partidos por equipo al día (2 por defecto) |
 
 ## Despliegue
 
