@@ -103,7 +103,7 @@ def test_swap_rejects_invalid_cases(db, two_teams):
 def test_start_and_finish_game_charges_minutes(db, two_teams):
     game = make_game(db, two_teams)
     ids = start_five(db, game, two_teams[0].id_team)
-    assert games_service.start_game(db, game.id_game).status == "IN_PROGRESS"
+    assert games_service.start_game(db, game.id_game, adjust_date=True).status == "IN_PROGRESS"
     games_service.update_game_clock(db, game.id_game, seconds=300, paused=True)
     finished = games_service.finish_game(db, game.id_game)
     assert finished.status == "FINISHED" and finished.is_paused

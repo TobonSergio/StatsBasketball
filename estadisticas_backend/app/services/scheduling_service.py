@@ -29,12 +29,22 @@ COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
 
 # Un partido programado cuya hora pasó hace más de esto y no se inició se considera "atrasado"
 OVERDUE_GRACE_MINUTES = int(os.getenv("OVERDUE_GRACE_MINUTES", "30"))
+# Iniciar un partido más de esto antes de su hora programada requiere confirmación (y mueve su fecha a ahora)
+EARLY_START_TOLERANCE_MINUTES = int(os.getenv("EARLY_START_TOLERANCE_MINUTES", "15"))
 PAST_TOLERANCE_MINUTES = 5  # holgura por diferencias de reloj entre el navegador y el servidor
 
 
 def now_local() -> datetime:
     """Ahora, en hora de Colombia y sin zona (como se guardan las fechas de los partidos)."""
     return datetime.now(COLOMBIA_UTC_OFFSET).replace(tzinfo=None)
+
+
+def minutes_early(scheduled: Optional[datetime]) -> int:
+    """Minutos que faltan para la hora programada si se pasa de la tolerancia; 0 si no es un inicio anticipado."""
+    if scheduled is None:
+        return 0
+    minutes = int((to_local_naive(scheduled) - now_local()).total_seconds() // 60)
+    return minutes if minutes > EARLY_START_TOLERANCE_MINUTES else 0
 
 
 def assert_not_in_past(when: Optional[datetime], date_only: bool = False) -> None:

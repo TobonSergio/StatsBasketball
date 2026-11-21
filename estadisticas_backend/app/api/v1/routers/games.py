@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
-from app.schemas.games import CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
+from app.schemas.games import StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
 from app.services import audit_service, export_service, games_service
@@ -147,11 +147,22 @@ def start_overtime(
     return result
 
 @router.post("/{game_id}/start", response_model=GameResponse)
-def start_game(game_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    game = games_service.start_game(db, game_id)
+def start_game(
+    game_id: int,
+    data: StartRequest = StartRequest(),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Inicia el partido. Si es antes de su hora, responde 409 `early_start` hasta confirmar con adjust_date."""
+    before = games_service.get_game_by_id(db, game_id)
+    scheduled_for = before.date if before else None
+    game = games_service.start_game(db, game_id, adjust_date=data.adjust_date)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
-    audit_service.record(db, user, "game.start", "game", game_id, game_id=game_id)
+    details = None
+    if scheduled_for and game.date != scheduled_for:
+        details = {"date_moved_from": scheduled_for.isoformat(), "date_moved_to": game.date.isoformat()}
+    audit_service.record(db, user, "game.start", "game", game_id, game_id=game_id, details=details)
     return game
 
 @router.post("/{game_id}/finish", response_model=GameResponse)

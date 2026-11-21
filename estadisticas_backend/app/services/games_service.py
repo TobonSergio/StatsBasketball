@@ -708,14 +708,32 @@ def swap_players(db: Session, player_out_id: int, player_in_id: int, current_gam
     return {"player_out": gp_out.id_game_player, "player_in": gp_in.id_game_player}
 
 
-def start_game(db: Session, game_id: int):
-    """Marca el partido como IN_PROGRESS (idempotente). El reloj sigue en pausa."""
+def start_game(db: Session, game_id: int, adjust_date: bool = False):
+    """
+    Marca el partido como IN_PROGRESS (idempotente). El reloj sigue en pausa.
+    Si se inicia antes de su hora programada (más de la tolerancia) hace falta confirmarlo con
+    `adjust_date=True`: la fecha pasa a ser ahora y se valida la agenda de ambos equipos.
+    """
     game = get_game_by_id(db, game_id)
     if not game:
         return None
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
     _assert_not_cancelled(game)
+    if game.status == GameStatus.SCHEDULED.value:
+        early = scheduling_service.minutes_early(game.date)
+        if early:
+            if not adjust_date:
+                raise HTTPException(status_code=409, detail={
+                    "code": "early_start",
+                    "message": f"El partido está programado para dentro de {early} min. ¿Iniciarlo ahora?",
+                    "scheduled_for": game.date.isoformat(),
+                    "minutes_early": early,
+                })
+            now = scheduling_service.now_local().replace(second=0, microsecond=0)
+            scheduling_service.assert_teams_available(
+                db, game.fk_home_id_team, game.fk_away_id_team, now, exclude_game_id=game.id_game)
+            game.date = now  # la fecha refleja cuándo se juega realmente
     game.status = GameStatus.IN_PROGRESS.value
     _mark_started(game)
     if game.tournament_phase is not None:
