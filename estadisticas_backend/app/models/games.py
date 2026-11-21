@@ -23,6 +23,10 @@ class Game(Base):
     status = Column(String(20), nullable=False, server_default="SCHEDULED")
 
     
+    # Hora real (UTC) en que el partido se inició y se cerró; NULL si aún no / no aplica (p. ej. W.O.)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
     # Torneos: jornada (liga) o ronda (llave) y posición dentro de la ronda
     round = Column(Integer, nullable=True)
     slot = Column(Integer, nullable=True)

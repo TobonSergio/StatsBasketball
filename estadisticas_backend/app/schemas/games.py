@@ -72,6 +72,8 @@ class GameResponse(GameBase):
     home_team: Optional[TeamSimple] = None
     away_team: Optional[TeamSimple] = None
     live_remaining_seconds: Optional[int] = None  # reloj real calculado por el servidor
+    started_at: Optional[datetime] = None  # momento real (UTC) en que se inició el partido
+    finished_at: Optional[datetime] = None
     tournament_id: Optional[int] = None
     tournament_name: Optional[str] = None
     phase_name: Optional[str] = None

@@ -5,6 +5,7 @@ class GameStatus(str, Enum):
     SCHEDULED = "SCHEDULED"
     IN_PROGRESS = "IN_PROGRESS"
     FINISHED = "FINISHED"
+    CANCELLED = "CANCELLED"  # amistoso que el admin decidió no jugar
 
 
 DEFAULT_QUARTER_SECONDS = 600  # 10 min
@@ -19,6 +20,8 @@ def normalize_game_status(status_str: str) -> str:
         return GameStatus.IN_PROGRESS.value
     if s in ["finished", "completed", "finalizado", "terminado"]:
         return GameStatus.FINISHED.value
+    if s in ["cancelled", "canceled", "cancelado"]:
+        return GameStatus.CANCELLED.value
     if s in ["scheduled", "programado"]:
         return GameStatus.SCHEDULED.value
     return status_str.upper()

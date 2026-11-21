@@ -20,6 +20,12 @@ from app.models.events import Event # Asegúrate de importar Event
 from app.models.games import Game # Asegúrate de que la ruta sea la correcta en tu proyecto
 
 
+def _mark_started(game: Game) -> None:
+    """Registra la hora real del primer inicio (no se sobrescribe si el partido se reanuda)."""
+    if game.started_at is None:
+        game.started_at = utcnow()
+
+
 def set_starting_five(db: Session, game_id: int, team_id: int, game_player_ids: list[int]):
     """
     1. Valida que sean 5 jugadores distintos de ese partido y equipo.
@@ -187,6 +193,11 @@ def update_game(db: Session, game_id: int, game_data: GameUpdate):
         setattr(game, key, value)
     if not was_finished and game.status == GameStatus.FINISHED.value:
         tournaments_service.assert_can_finish(db, game)
+        game.finished_at = game.finished_at or utcnow()
+    if game.status == GameStatus.IN_PROGRESS.value:
+        _mark_started(game)
+    elif game.status == GameStatus.SCHEDULED.value and was_finished:
+        game.finished_at = None  # se reabrió
 
     # Recalcula la tabla si el partido es (o dejó de ser) FINALIZADO, o si se corrigió su marcador
     if was_finished or game.status == GameStatus.FINISHED.value:
@@ -345,6 +356,7 @@ def create_game_with_players(db: Session, game_data: GameWithPlayersCreate) -> G
         home_score=0,
         away_score=0,
         status=initial_status,
+        started_at=utcnow() if initial_status == GameStatus.IN_PROGRESS.value else None,
         fk_id_tournament_phase=getattr(game_data, 'fk_id_tournament_phase', None),
         fk_id_tournament_group=getattr(game_data, 'fk_id_tournament_group', None)
     )
@@ -696,6 +708,7 @@ def start_game(db: Session, game_id: int):
     if game.status == GameStatus.FINISHED.value:
         raise HTTPException(status_code=409, detail="El partido ya finalizó")
     game.status = GameStatus.IN_PROGRESS.value
+    _mark_started(game)
     if game.tournament_phase is not None:
         tournaments_service.refresh_status(db, game.tournament_phase.fk_id_tournament)
     db.commit()
@@ -732,6 +745,7 @@ def finish_game(db: Session, game_id: int):
     tournaments_service.assert_can_finish(db, game)
     game.remaining_time_seconds = game.live_remaining_seconds
     game.status = GameStatus.FINISHED.value
+    game.finished_at = utcnow()
     game.is_paused = True
     game.clock_started_at = None
     tournaments_service.apply_game_result(db, game)
@@ -776,6 +790,7 @@ def start_clock(db: Session, game_id: int):
     if game.is_paused or game.clock_started_at is None:
         game.is_paused = False
         game.clock_started_at = utcnow()
+        _mark_started(game)
         db.commit()
         db.refresh(game)
     return game
@@ -814,6 +829,7 @@ def forfeit_game(db: Session, game_id: int, loser_team_id: int):
     game.home_score, game.away_score = (lose, win) if home_loses else (win, lose)
     game.is_forfeit = True
     game.status = GameStatus.FINISHED.value
+    game.finished_at = utcnow()  # started_at queda en NULL: el partido no se disputó
     game.is_paused = True
     game.clock_started_at = None
     tournaments_service.apply_game_result(db, game)
