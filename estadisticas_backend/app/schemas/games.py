@@ -51,6 +51,13 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
             raise ValueError(f"status inválido: {v}. Use {[s.value for s in GameStatus]}")
         return normalized
 
+class RescheduleRequest(BaseModel):
+    """Reprogramación manual de un partido que aún no se jugó."""
+    date: datetime
+    location: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
 # Agrega este esquema simple arriba de GameResponse
 class TeamSimple(BaseModel):
     id_team: int

@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
@@ -797,3 +800,31 @@ def forfeit_game(db: Session, game_id: int, loser_team_id: int):
     db.commit()
     db.refresh(game)
     return game
+
+
+COLOMBIA_UTC_OFFSET = timezone(timedelta(hours=-5))
+
+
+def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Optional[str] = None):
+    """
+    Reprograma manualmente un partido que aún no empezó (fecha y, opcional, sede).
+    Las fechas se guardan sin zona horaria, en hora de Colombia (igual que al crear el partido).
+    Devuelve (partido, fecha_anterior) o None si no existe.
+    """
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status == GameStatus.FINISHED.value:
+        raise HTTPException(status_code=409, detail="El partido ya finalizó y no se puede reprogramar")
+    if game.status == GameStatus.IN_PROGRESS.value:
+        raise HTTPException(status_code=409, detail="El partido está en juego y no se puede reprogramar")
+
+    if new_date.tzinfo is not None:
+        new_date = new_date.astimezone(COLOMBIA_UTC_OFFSET).replace(tzinfo=None)
+    previous = game.date
+    game.date = new_date
+    if location:
+        game.location = location.strip()
+    db.commit()
+    db.refresh(game)
+    return game, previous
