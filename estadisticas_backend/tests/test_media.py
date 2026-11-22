@@ -39,7 +39,7 @@ class FakeSupabase:
                 self.end_headers()
                 self.wfile.write(payload)
 
-            do_POST = do_DELETE = _handle
+            do_POST = do_DELETE = do_GET = _handle
 
             def log_message(self, *args):
                 pass
@@ -251,4 +251,42 @@ def test_a_real_auth_failure_is_still_reported_after_the_retry(db, monkeypatch):
     with pytest.raises(storage.StorageError) as e:
         storage.upload("teams/1/a.png", PNG, "image/png")
     assert e.value.status == 403 and len(fake.requests) == 2
+    fake.stop()
+
+
+# ── diagnóstico del almacenamiento ────────────────────────────────────────────────────────────
+def test_status_reports_missing_configuration(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    out = storage.status()
+    assert out["configured"] is False and out["ok"] is False and "SUPABASE_SERVICE_ROLE_KEY" in out["detail"]
+
+
+def test_status_ok_checks_the_bucket_with_the_server_key(monkeypatch):
+    fake = FakeSupabase()
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_abc")
+    monkeypatch.setenv("STORAGE_BUCKET", "team-assets")
+    assert storage.status() == {"configured": True, "ok": True, "bucket": "team-assets", "detail": None}
+    assert fake.requests[0]["method"] == "GET" and fake.requests[0]["path"] == "/storage/v1/bucket/team-assets"
+    fake.stop()
+
+
+@pytest.mark.parametrize("code,fragment", [(404, "no existe"), (401, "no es válida"), (500, "500")])
+def test_status_explains_why_it_is_not_ok(monkeypatch, code, fragment):
+    fake = FakeSupabase(fail_status=code)
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "eyJ.legacy.key")
+    out = storage.status()
+    assert out["configured"] is True and out["ok"] is False and fragment in out["detail"]
+    fake.stop()
+
+
+def test_status_endpoint_never_leaks_the_key(monkeypatch):
+    fake = FakeSupabase(fail_status=401)
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_MUY_SECRETA")
+    from app.api.v1.routers import media as media_router
+    out = asyncio.run(media_router.media_status())
+    assert out["ok"] is False and "sb_secret_MUY_SECRETA" not in str(out)
     fake.stop()
