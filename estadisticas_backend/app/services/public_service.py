@@ -223,6 +223,19 @@ def _record(games: list, team_id: int) -> dict:
     return {"played": len(games), "wins": wins, "losses": losses, "draws": draws, "scored": scored, "received": received}
 
 
+def _form(finished: list, team_id: int, n: int = 5) -> list[dict]:
+    """Resultado de los últimos `n` partidos terminados (el más reciente primero)."""
+    out = []
+    for g in finished[:n]:
+        home = g.fk_home_id_team == team_id
+        mine, theirs = (g.home_score, g.away_score) if home else (g.away_score, g.home_score)
+        mine, theirs = mine or 0, theirs or 0
+        rival = g.away_team if home else g.home_team
+        out.append({"game_id": g.id_game, "result": "W" if mine > theirs else "L" if mine < theirs else "D",
+                    "scored": mine, "received": theirs, "rival": rival.name if rival else None})
+    return out
+
+
 def get_team(db: Session, team_id: int) -> dict:
     def build():
         team = db.get(Team, team_id)
@@ -247,6 +260,8 @@ def get_team(db: Session, team_id: int) -> dict:
             "team": _team_profile(team),
             "players": [player_public(p) for p in roster],
             "record": _record(finished, team_id),
+            "form": _form(finished, team_id),
+            "leaders": leaders(db, 1, team_id),
             "recent_games": [_game_header(g) for g in finished[:8]],
             "upcoming_games": [_game_header(g) for g in upcoming[:6]],
         }
@@ -306,15 +321,17 @@ LEADER_CATEGORIES = [
 ]
 
 
-def leaders(db: Session, limit: int = 5) -> dict:
-    """Líderes por promedio por partido entre todos los partidos jugados (finalizados, sin W.O., con actividad)."""
+def leaders(db: Session, limit: int = 5, team_id: Optional[int] = None) -> dict:
+    """Líderes por promedio por partido entre todos los partidos jugados (finalizados, sin W.O., con actividad).
+
+    Con `team_id` solo cuentan los jugadores actuales de ese equipo."""
     def build():
         c = lambda col: func.coalesce(col, 0)  # noqa: E731
         activity = (c(PlayerStats.points_two_attempts) + c(PlayerStats.points_three_attempts) + c(PlayerStats.free_throw_attempts)
                     + c(PlayerStats.rebounds) + c(PlayerStats.assists) + c(PlayerStats.steals) + c(PlayerStats.blocks)
                     + c(PlayerStats.turnovers) + c(PlayerStats.fouls))
         pts = c(PlayerStats.points_two_made) * 2 + c(PlayerStats.points_three_made) * 3 + c(PlayerStats.free_throw_made)
-        rows = (
+        query = (
             db.query(
                 GamePlayer.fk_id_player,
                 func.count(PlayerStats.id_player_stats).label("games"),
@@ -326,8 +343,11 @@ def leaders(db: Session, limit: int = 5) -> dict:
             .join(Game, Game.id_game == GamePlayer.fk_id_game)
             .filter(Game.status == GameStatus.FINISHED.value, Game.is_forfeit.is_(False),
                     or_(c(PlayerStats.minutes_played) > 0, activity > 0))
-            .group_by(GamePlayer.fk_id_player).all()
+            .group_by(GamePlayer.fk_id_player)
         )
+        if team_id is not None:
+            query = query.join(Player, Player.id_player == GamePlayer.fk_id_player).filter(Player.fk_id_team == team_id)
+        rows = query.all()
         if not rows:
             return {key: [] for key, _ in LEADER_CATEGORIES}
         players = {p.id_player: p for p in db.query(Player).options(joinedload(Player.team))
@@ -345,4 +365,4 @@ def leaders(db: Session, limit: int = 5) -> dict:
             ]
         return out
 
-    return _cached_long(("leaders", limit), build)
+    return _cached_long(("leaders", limit, team_id), build)
