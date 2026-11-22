@@ -133,3 +133,28 @@ def test_reschedule_game_rules(db, two_teams):
         with pytest.raises(HTTPException) as e:
             games_service.reschedule_game(db, game.id_game, datetime(2026, 5, 1))
         assert e.value.status_code == 409
+
+
+def test_summarize_counts_teams_and_played_games_without_cancelled(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    t = make_tournament(db, a, b)
+    done = make_game(db, a, b, t)
+    done.status = "FINISHED"
+    pending = make_game(db, a, b, t)
+    pending.status = "SCHEDULED"
+    cancelled = make_game(db, a, b, t)
+    cancelled.status = "CANCELLED"
+    db.commit()
+    row = tournaments_service.summarize(db, [t])[0]
+    assert row["name"] == "Copa" and row["teams_count"] == 2
+    assert (row["games_played"], row["games_total"]) == (1, 2) and row["champion"] is None
+    t.champion_team_id = a.id_team
+    db.commit()
+    assert tournaments_service.summarize(db, [t])[0]["champion"]["name"] == a.name
+
+
+def test_summarize_handles_empty_and_tournament_without_games(db, two_teams):
+    assert tournaments_service.summarize(db, []) == []
+    t = make_tournament(db, two_teams[0], two_teams[1])
+    row = tournaments_service.summarize(db, [t])[0]
+    assert (row["teams_count"], row["games_played"], row["games_total"]) == (2, 0, 0)

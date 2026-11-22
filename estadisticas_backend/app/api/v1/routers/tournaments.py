@@ -23,10 +23,7 @@ def list_tournaments(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    return [
-        tournaments_service.tournament_to_dict(t)
-        for t in tournaments_service.list_tournaments(db, skip, limit)
-    ]
+    return tournaments_service.summarize(db, tournaments_service.list_tournaments(db, skip, limit))
 
 
 @router.get("/{tournament_id}")

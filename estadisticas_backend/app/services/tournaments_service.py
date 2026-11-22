@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from typing import Optional
@@ -60,6 +61,45 @@ def list_tournaments(db: Session, skip: int = 0, limit: int = 100):
 
 def tournament_to_dict(t: Tournament) -> dict:
     return {c.name: getattr(t, c.name) for c in Tournament.__table__.columns}
+
+
+def summarize(db: Session, tournaments: list) -> list[dict]:
+    """Torneos con su resumen para las tarjetas: equipos, partidos jugados / totales (sin cancelados) y campeón."""
+    if not tournaments:
+        return []
+    ids = [t.id_tournament for t in tournaments]
+    teams: dict = {}
+    for tid, n in (
+        db.query(TournamentPhase.fk_id_tournament, func.count(func.distinct(TournamentStanding.fk_id_team)))
+        .join(TournamentGroup, TournamentGroup.fk_id_phase == TournamentPhase.id_phase)
+        .join(TournamentStanding, TournamentStanding.fk_id_group == TournamentGroup.id_group)
+        .filter(TournamentPhase.fk_id_tournament.in_(ids)).group_by(TournamentPhase.fk_id_tournament).all()
+    ):
+        teams[tid] = n
+    played: dict = {}
+    total: dict = {}
+    for tid, status_, n in (
+        db.query(TournamentPhase.fk_id_tournament, Game.status, func.count(Game.id_game))
+        .join(Game, Game.fk_id_tournament_phase == TournamentPhase.id_phase)
+        .filter(TournamentPhase.fk_id_tournament.in_(ids)).group_by(TournamentPhase.fk_id_tournament, Game.status).all()
+    ):
+        if status_ == GameStatus.CANCELLED.value:
+            continue
+        total[tid] = total.get(tid, 0) + n
+        if status_ == GameStatus.FINISHED.value:
+            played[tid] = played.get(tid, 0) + n
+    champions = {c.id_team: c for c in db.query(Team).filter(Team.id_team.in_([t.champion_team_id for t in tournaments if t.champion_team_id])).all()}         if any(t.champion_team_id for t in tournaments) else {}
+    out = []
+    for t in tournaments:
+        d = tournament_to_dict(t)
+        d.update({
+            "teams_count": teams.get(t.id_tournament, 0),
+            "games_played": played.get(t.id_tournament, 0),
+            "games_total": total.get(t.id_tournament, 0),
+            "champion": team_brief(champions.get(t.champion_team_id)) if t.champion_team_id else None,
+        })
+        out.append(d)
+    return out
 
 
 def get_tournament_detail(db: Session, tournament_id: int) -> dict:

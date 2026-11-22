@@ -348,7 +348,7 @@ def get_game_summary(db: Session, game_id: int) -> dict:
 def list_tournaments(db: Session) -> list[dict]:
     def build():
         rows = tournaments_service.list_tournaments(db, 0, 100)
-        return [tournaments_service.tournament_to_dict(t) for t in rows]
+        return tournaments_service.summarize(db, rows)
 
     return _cached_long(("tournaments",), build)
 
