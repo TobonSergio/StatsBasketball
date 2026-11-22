@@ -5,6 +5,7 @@ from typing import Optional
 
 from app.core.enums import GameStatus, PhaseType, TournamentStatus, normalize_phase_type
 from app.services import bracket_service, standings_service
+from app.services.team_brief import team_brief
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import (
@@ -92,8 +93,8 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
                 "fk_home_id_team": g.fk_home_id_team, "fk_away_id_team": g.fk_away_id_team,
                 "fk_id_tournament_phase": g.fk_id_tournament_phase,
                 "fk_id_tournament_group": g.fk_id_tournament_group,
-                "home": {"id_team": g.home_team.id_team, "name": g.home_team.name} if g.home_team else None,
-                "away": {"id_team": g.away_team.id_team, "name": g.away_team.name} if g.away_team else None,
+                "home": team_brief(g.home_team),
+                "away": team_brief(g.away_team),
             })
 
     standings = []
@@ -111,7 +112,7 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
                     "games_played": line.played, "wins": line.wins, "losses": line.losses,
                     "points": line.points, "points_scored": line.scored,
                     "points_received": line.received, "point_diff": line.diff,
-                    "team": {"id_team": s_.team.id_team, "name": s_.team.name} if s_.team else None,
+                    "team": team_brief(s_.team),
                 })
 
     return {
@@ -135,9 +136,7 @@ def get_tournament_detail(db: Session, tournament_id: int) -> dict:
             if normalize_phase_type(p.type) == PhaseType.KNOCKOUT.value and p.groups
         ],
         "champion": (
-            {"id_team": t.champion_team_id,
-             "name": getattr(db.get(Team, t.champion_team_id), "name", None)}
-            if t.champion_team_id else None
+            team_brief(db.get(Team, t.champion_team_id)) if t.champion_team_id else None
         ),
     }
 

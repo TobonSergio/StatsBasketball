@@ -18,6 +18,7 @@ from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import TournamentGroup, TournamentPhase, TournamentStanding
+from app.services.team_brief import team_brief
 from app.services import rosters_service, scheduling_service, standings_service
 
 MAX_TEAMS = 64
@@ -137,7 +138,7 @@ def build(db: Session, phase: TournamentPhase) -> dict:
     if not rows:
         return {"phase_id": phase.id_phase, "generated": False, "rounds": []}
     seed_team = {r.seed: r.fk_id_team for r in rows}
-    names = {t.id_team: t.name for t in db.query(Team).filter(Team.id_team.in_(seed_team.values()))}
+    teams_by_id = {t.id_team: t for t in db.query(Team).filter(Team.id_team.in_(seed_team.values()))}
     games = {(g.round, g.slot): g for g in db.query(Game).filter(Game.fk_id_tournament_phase == phase.id_phase)}
 
     size = bracket_size(len(seed_team))
@@ -146,7 +147,10 @@ def build(db: Session, phase: TournamentPhase) -> dict:
     team_seed = {v: k for k, v in seed_team.items()}
 
     def team(tid):
-        return {"id_team": tid, "name": names.get(tid), "seed": team_seed.get(tid)} if tid else None
+        if not tid:
+            return None
+        brief = team_brief(teams_by_id.get(tid)) or {"id_team": tid, "name": None}
+        return {**brief, "seed": team_seed.get(tid)}
 
     rounds = []
     winners: dict[tuple[int, int], Optional[int]] = {}

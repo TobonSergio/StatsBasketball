@@ -71,6 +71,10 @@ class RescheduleRequest(BaseModel):
 class TeamSimple(BaseModel):
     id_team: int
     name: str
+    # Para mostrar el escudo (opcionales: equipos sin perfil completo)
+    short_name: Optional[str] = None
+    primary_color: Optional[str] = None
+    logo_url: Optional[str] = None
     class Config:
         from_attributes = True
 
