@@ -10,6 +10,7 @@ HEADER = [
     "Equipo", "Dorsal", "Jugador", "MIN", "PTS",
     "2PM", "2PA", "3PM", "3PA", "FTM", "FTA",
     "REB", "AST", "STL", "BLK", "TO", "PF",
+    "OREB", "DREB", "TF", "UF",  # rebotes ofensivos/defensivos, faltas técnicas y antideportivas
 ]
 
 
@@ -40,6 +41,7 @@ def box_score_csv(db: Session, game_id: int) -> Optional[str]:
             pts,
             *( [s.points_two_made, s.points_two_attempts, s.points_three_made, s.points_three_attempts,
                 s.free_throw_made, s.free_throw_attempts, s.rebounds, s.assists, s.steals, s.blocks,
-                s.turnovers, s.fouls] if s else [0] * 12 ),
+                s.turnovers, s.fouls,
+                s.offensive_rebounds or 0, s.defensive_rebounds or 0, s.technical_fouls or 0, s.unsportsmanlike_fouls or 0] if s else [0] * 16 ),
         ])
     return out.getvalue()

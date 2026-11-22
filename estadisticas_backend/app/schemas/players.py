@@ -5,6 +5,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 # Posiciones FIBA: base, escolta, alero, ala-pívot, pívot
+MIN_AGE = 6    # edad mínima para registrar a un jugador (años cumplidos)
+MAX_AGE = 80   # tope razonable: evita fechas con error de tecleo (p. ej. 1900)
 Position = Literal["PG", "SG", "SF", "PF", "C"]
 
 
@@ -21,7 +23,7 @@ def _number(v):
 class PlayerFields(BaseModel):
     position: Optional[Position] = None
     is_captain: bool = False
-    height_cm: Optional[int] = Field(default=None, ge=120, le=250)
+    height_cm: Optional[int] = Field(default=None, ge=100, le=250)
     birth_date: Optional[date] = None
 
     @field_validator("position", mode="before")
@@ -34,8 +36,16 @@ class PlayerFields(BaseModel):
     @field_validator("birth_date")
     @classmethod
     def _birth(cls, v):
-        if v is not None and v > date.today():
+        if v is None:
+            return v
+        today = date.today()
+        if v > today:
             raise ValueError("La fecha de nacimiento no puede ser futura")
+        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
+        if age < MIN_AGE:
+            raise ValueError(f"El jugador debe tener al menos {MIN_AGE} años")
+        if age > MAX_AGE:
+            raise ValueError(f"La edad no puede superar {MAX_AGE} años: revisa la fecha de nacimiento")
         return v
 
 

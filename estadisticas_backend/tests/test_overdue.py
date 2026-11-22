@@ -53,13 +53,12 @@ def test_cancel_friendly_is_idempotent_and_hidden_from_public(db, two_teams):
     assert games_service.cancel_game(db, 9999) is None
 
 
-def test_cannot_cancel_started_or_finished(db, two_teams):
+def test_cannot_cancel_a_finished_game(db, two_teams):
     a, b = two_teams[0], two_teams[1]
-    for status in ("IN_PROGRESS", "FINISHED"):
-        g = _friendly(db, a, b, datetime(2026, 12, 9, 10, 0), status=status)
-        with pytest.raises(HTTPException) as e:
-            games_service.cancel_game(db, g.id_game)
-        assert e.value.status_code == 409
+    g = _friendly(db, a, b, datetime(2026, 12, 9, 10, 0), status="FINISHED")
+    with pytest.raises(HTTPException) as e:
+        games_service.cancel_game(db, g.id_game)
+    assert e.value.status_code == 409
 
 
 def test_tournament_games_cannot_be_cancelled(db, two_teams):

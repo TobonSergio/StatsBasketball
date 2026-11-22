@@ -27,6 +27,9 @@ class Game(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Flecha de posesión alterna: equipo que obtiene el próximo balón retenido (NULL = sin definir)
+    possession_team_id = Column(Integer, nullable=True)
+
     # Torneos: jornada (liga) o ronda (llave) y posición dentro de la ronda
     round = Column(Integer, nullable=True)
     slot = Column(Integer, nullable=True)

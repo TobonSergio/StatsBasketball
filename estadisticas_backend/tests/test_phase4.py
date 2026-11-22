@@ -115,7 +115,7 @@ class TestPermissions:
         ("PATCH", "/games/4/timer"), ("POST", "/games/4/start"), ("POST", "/games/4/finish"),
         ("POST", "/games/4/end-quarter"), ("POST", "/games/4/overtime"),
         ("POST", "/games/4/clock/start"), ("POST", "/games/4/teams/2/starters"),
-        ("POST", "/games/4/timeouts"), ("DELETE", "/games/4/timeouts/9"), ("PUT", "/games/4/teams/2/roster"),
+        ("POST", "/games/4/timeouts"), ("DELETE", "/games/4/timeouts/9"), ("PUT", "/games/4/teams/2/roster"), ("PUT", "/games/4/possession"),
     ])
     def test_scorer_can_run_the_table(self, method, path):
         assert allowed_roles_for(method, path) == {"admin", "scorer"}
