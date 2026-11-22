@@ -666,6 +666,8 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
             "location": game.location,
             "date": game.date.isoformat() if game.date else None,
             "current_quarter": game.current_quarter,
+            "num_quarters": game.num_quarters or 4,
+            "quarter_seconds": game.quarter_seconds or 600,
             "remaining_time_seconds": game.remaining_time_seconds,
             "is_paused": game.is_paused,
             "home_score": game.home_score,

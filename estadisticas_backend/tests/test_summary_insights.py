@@ -144,3 +144,8 @@ def test_summary_players_carry_photo(db, played):
     g = played[0]
     players = games_service.get_game_summary(db, g.id_game)["players"]
     assert all("photo_url" in p["player"] for p in players)
+
+
+def test_summary_game_carries_period_configuration(db, played):
+    game = games_service.get_game_summary(db, played[0].id_game)["game"]
+    assert game["num_quarters"] == 4 and game["quarter_seconds"] == 600
