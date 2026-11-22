@@ -1,12 +1,15 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.models.players import Player
 from app.models.teams import Team
 from app.services import media_service
 from app.schemas.players import PlayerCreate, PlayerUpdate
 from app.models.players_stats import PlayerStats
 from app.models.games_players import GamePlayer
+from app.models.games import Game
+from app.core.enums import GameStatus
+from app.services.team_brief import team_brief
 
 def _number_key(number) -> int:
     """'5' y '05' son el mismo dorsal."""
@@ -110,6 +113,25 @@ def delete_player(db:Session, player_id:int) -> bool:
     db.commit()
     return True
     
+def _played_filters(player_id: int) -> list:
+    """
+    Condiciones de "partido jugado": partido FINALIZADO, no un W.O., y el jugador tuvo actividad (minutos o alguna
+    acción). Sin esto, los partidos programados o donde solo estuvo convocado inflaban partidos y promedios.
+    """
+    c = lambda col: func.coalesce(col, 0)  # noqa: E731
+    activity = (
+        c(PlayerStats.points_two_attempts) + c(PlayerStats.points_three_attempts) + c(PlayerStats.free_throw_attempts)
+        + c(PlayerStats.rebounds) + c(PlayerStats.assists) + c(PlayerStats.steals) + c(PlayerStats.blocks)
+        + c(PlayerStats.turnovers) + c(PlayerStats.fouls)
+    )
+    return [
+        GamePlayer.fk_id_player == player_id,
+        Game.status == GameStatus.FINISHED.value,
+        Game.is_forfeit.is_(False),
+        or_(c(PlayerStats.minutes_played) > 0, activity > 0),
+    ]
+
+
 def get_player_career_stats(db: Session, player_id: int):
     stats = db.query(
         func.count(PlayerStats.id_player_stats).label("games_played"),
@@ -127,7 +149,8 @@ def get_player_career_stats(db: Session, player_id: int):
         func.sum(PlayerStats.turnovers).label("tov"),
         func.sum(PlayerStats.minutes_played).label("min")
     ).join(GamePlayer, PlayerStats.fk_id_game_player == GamePlayer.id_game_player
-    ).filter(GamePlayer.fk_id_player == player_id).first()
+    ).join(Game, Game.id_game == GamePlayer.fk_id_game
+    ).filter(*_played_filters(player_id)).first()
 
     if not stats or stats.games_played == 0:
         return {
@@ -177,7 +200,8 @@ def get_player_game_history(db: Session, player_id: int, limit: int = 10):
     return (
         db.query(PlayerStats)
         .join(GamePlayer, PlayerStats.fk_id_game_player == GamePlayer.id_game_player)
-        .filter(GamePlayer.fk_id_player == player_id)
+        .join(Game, Game.id_game == GamePlayer.fk_id_game)
+        .filter(*_played_filters(player_id))
         .order_by(PlayerStats.id_player_stats.desc())
         .limit(limit)
         .all()
@@ -198,3 +222,40 @@ def remove_photo(db: Session, player_id: int):
         return None
     media_service.remove_image(db, player, "photo_url")
     return player
+
+
+def get_player_game_log(db: Session, player_id: int, limit: int = 20) -> list[dict]:
+    """Partidos jugados (más reciente primero) con rival, resultado y estadísticas del jugador en cada uno."""
+    rows = (
+        db.query(PlayerStats, GamePlayer, Game)
+        .join(GamePlayer, PlayerStats.fk_id_game_player == GamePlayer.id_game_player)
+        .join(Game, Game.id_game == GamePlayer.fk_id_game)
+        .filter(*_played_filters(player_id))
+        .order_by(Game.date.desc(), Game.id_game.desc())
+        .limit(limit)
+        .all()
+    )
+    log = []
+    for stats, gp, game in rows:
+        home = gp.fk_id_team == game.fk_home_id_team
+        mine = (game.home_score if home else game.away_score) or 0
+        theirs = (game.away_score if home else game.home_score) or 0
+        s = lambda v: int(v or 0)  # noqa: E731
+        log.append({
+            "id_game": game.id_game,
+            "date": game.date,
+            "is_home": home,
+            "opponent": team_brief(game.away_team if home else game.home_team),
+            "score_for": mine,
+            "score_against": theirs,
+            "result": "W" if mine > theirs else "L" if mine < theirs else "D",
+            "tournament_name": game.tournament_name,
+            "minutes": round(float(stats.minutes_played or 0), 1),
+            "points": s(stats.points_two_made) * 2 + s(stats.points_three_made) * 3 + s(stats.free_throw_made),
+            "p2_made": s(stats.points_two_made), "p2_att": s(stats.points_two_attempts),
+            "p3_made": s(stats.points_three_made), "p3_att": s(stats.points_three_attempts),
+            "ft_made": s(stats.free_throw_made), "ft_att": s(stats.free_throw_attempts),
+            "rebounds": s(stats.rebounds), "assists": s(stats.assists), "steals": s(stats.steals),
+            "blocks": s(stats.blocks), "turnovers": s(stats.turnovers), "fouls": s(stats.fouls),
+        })
+    return log
