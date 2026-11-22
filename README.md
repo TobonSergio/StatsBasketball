@@ -188,3 +188,14 @@ Documentación interactiva: `/docs` (OpenAPI).
 - `DEFAULT_ROLE=viewer` en producción para que una cuenta sin rol nunca tenga poder. Hacerlo **después** de marcar al supremo.
 - Desactivar, eliminar o cambiar el rol surte efecto de inmediato (`app/core/revocation.py`), sin esperar a que caduque el token.
 - Requiere `SUPABASE_SERVICE_ROLE_KEY` (la misma de las imágenes).
+
+
+## Sitio público (sin cuenta)
+
+Rutas de solo lectura bajo `/public`, sin autenticación y con límite de 240 peticiones por minuto y por IP
+(`app/core/ratelimit.py`): `/public/games`, `/public/games/{id}/live`, `/public/games/{id}/summary` (solo partidos
+terminados), `/public/teams`, `/public/teams/{id}`, `/public/players/{id}`, `/public/tournaments`,
+`/public/tournaments/{id}` y `/public/leaders`.
+
+**Privacidad:** del jugador se publica la **edad**, nunca la fecha de nacimiento (hay una prueba que revisa todas las
+respuestas públicas). Nada de auditoría, usuarios ni datos de gestión.
