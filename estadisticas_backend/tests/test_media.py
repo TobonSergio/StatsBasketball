@@ -20,8 +20,8 @@ WEBP = b"RIFF\x24\x00\x00\x00WEBP" + b"\x00" * 32
 
 # ── servidor falso con la API de Supabase Storage ─────────────────────────────────────────────
 class FakeSupabase:
-    def __init__(self, fail_status=None):
-        self.requests, self.fail_status = [], fail_status
+    def __init__(self, fail_status=None, require_bearer=False):
+        self.requests, self.fail_status, self.require_bearer = [], fail_status, require_bearer
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -30,6 +30,8 @@ class FakeSupabase:
                 body = self.rfile.read(length) if length else b""
                 outer.requests.append({"method": self.command, "path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": body})
                 code = outer.fail_status or 200
+                if outer.require_bearer and not self.headers.get("Authorization"):
+                    code = 401
                 payload = b'{"Key":"ok"}' if code == 200 else b'{"message":"bucket not found"}'
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -207,4 +209,46 @@ def test_failing_to_delete_the_old_file_does_not_break_the_replacement(db, monke
     new = teams_service.set_logo(db, team.id_team, WEBP)
     assert new.logo_url.endswith(".webp")
     monkeypatch.setattr(storage, "delete", original_delete)
+    fake.stop()
+
+
+# ── tipos de clave de Supabase ────────────────────────────────────────────────────────────────
+def test_legacy_service_role_key_sends_apikey_and_bearer(db, monkeypatch):
+    fake = FakeSupabase()
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOi.legacy.jwt")
+    storage.upload("teams/1/a.png", PNG, "image/png")
+    h = fake.requests[0]["headers"]
+    assert h["apikey"] == "eyJhbGciOi.legacy.jwt" and h["authorization"] == "Bearer eyJhbGciOi.legacy.jwt"
+    fake.stop()
+
+
+def test_new_secret_key_is_sent_only_as_apikey_first(db, monkeypatch):
+    fake = FakeSupabase()
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_abc123")
+    storage.upload("teams/1/a.png", PNG, "image/png")
+    assert len(fake.requests) == 1
+    h = fake.requests[0]["headers"]
+    assert h["apikey"] == "sb_secret_abc123" and "authorization" not in h        # no es un JWT: no va en Authorization
+    fake.stop()
+
+
+def test_new_secret_key_retries_with_bearer_if_storage_rejects_it(db, monkeypatch):
+    fake = FakeSupabase(require_bearer=True)
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_abc123")
+    url = storage.upload("teams/1/a.png", PNG, "image/png")
+    assert url.endswith("/teams/1/a.png")
+    assert [("authorization" in r["headers"]) for r in fake.requests] == [False, True]   # 1.º rechazado, 2.º aceptado
+    fake.stop()
+
+
+def test_a_real_auth_failure_is_still_reported_after_the_retry(db, monkeypatch):
+    fake = FakeSupabase(fail_status=403)
+    monkeypatch.setenv("SUPABASE_URL", fake.url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "sb_secret_wrong")
+    with pytest.raises(storage.StorageError) as e:
+        storage.upload("teams/1/a.png", PNG, "image/png")
+    assert e.value.status == 403 and len(fake.requests) == 2
     fake.stop()

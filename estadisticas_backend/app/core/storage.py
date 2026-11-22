@@ -59,10 +59,7 @@ def path_from_url(url: Optional[str]) -> Optional[str]:
     return url.split(marker, 1)[1].split("?", 1)[0] or None
 
 
-def _request(method: str, endpoint: str, key: str, body: Optional[bytes], content_type: Optional[str]) -> bytes:
-    headers = {"Authorization": f"Bearer {key}", "apikey": key}
-    if content_type:
-        headers["Content-Type"] = content_type
+def _send(method: str, endpoint: str, headers: dict, body: Optional[bytes]) -> bytes:
     req = urllib.request.Request(endpoint, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310 (URL de configuración)
@@ -72,6 +69,28 @@ def _request(method: str, endpoint: str, key: str, body: Optional[bytes], conten
         raise StorageError(f"Supabase Storage respondió {exc.code}: {detail}", exc.code) from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise StorageError(f"No se pudo conectar con Supabase Storage: {exc}") from exc
+
+
+def _request(method: str, endpoint: str, key: str, body: Optional[bytes], content_type: Optional[str]) -> bytes:
+    """
+    Dos tipos de clave de servidor:
+      - nueva "secret" (sb_secret_...): no es un JWT; se envía en la cabecera `apikey`.
+      - antigua "service_role" (JWT, eyJ...): se envía en `apikey` y en `Authorization: Bearer`.
+    Con una clave nueva se prueba primero solo `apikey` y, si Storage la rechaza (401/403), se reintenta con
+    `Authorization` también: así funciona con cualquiera de las dos sin tener que configurar nada.
+    """
+    base = {"apikey": key}
+    if content_type:
+        base["Content-Type"] = content_type
+    with_bearer = {**base, "Authorization": f"Bearer {key}"}
+    if not key.startswith("sb_secret_"):
+        return _send(method, endpoint, with_bearer, body)
+    try:
+        return _send(method, endpoint, base, body)
+    except StorageError as exc:
+        if exc.status in (401, 403):
+            return _send(method, endpoint, with_bearer, body)
+        raise
 
 
 def upload(path: str, data: bytes, content_type: str) -> str:

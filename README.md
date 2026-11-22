@@ -103,7 +103,7 @@ Frontend: ver el README de `StastBasketBallFrontend`.
 | `DEFAULT_ROLE` | no | Rol de usuarios sin rol (`admin` por defecto) |
 | `AUTH_REQUIRED` | no | `false` solo en desarrollo |
 | `SQL_ECHO` | no | `true` imprime el SQL |
-| `SUPABASE_SERVICE_ROLE_KEY` | para escudos/fotos | Clave `service_role` de Supabase (**secreta**, solo en el servidor). Sin ella la subida responde 503 |
+| `SUPABASE_SERVICE_ROLE_KEY` | para escudos/fotos | Clave de servidor de Supabase (**secreta**, solo en el servidor): la nueva *secret key* (`sb_secret_...`, Settings → API Keys) o la antigua `service_role` (pestaña Legacy API Keys). Sin ella la subida responde 503 |
 | `STORAGE_BUCKET` | no | Bucket público de Supabase Storage para escudos y fotos (`team-assets` por defecto) |
 | `MIN_REST_MINUTES` | no | Descanso mínimo entre partidos de un mismo equipo, en minutos (180 por defecto) |
 | `EARLY_START_TOLERANCE_MINUTES` | no | Antelación (min) a partir de la cual iniciar un partido pide confirmación y mueve su fecha a ahora (15 por defecto) |
