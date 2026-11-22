@@ -215,5 +215,5 @@ Las fechas se filtran por día de Colombia (UTC-5).
 ## Home del staff
 
 `GET /dashboard/` (cualquier usuario con sesión): partidos en juego, próximos, conteos y, **solo para administradores**,
-las alertas que requieren atención (`attention`): partidos atrasados, amistosos suspendidos con marcador, equipos con menos
+los últimos resultados (`recent`), los torneos activos con su avance, el top de la tabla y el próximo partido (`tournaments`) y, solo para administradores, las alertas que requieren atención (`attention`): partidos atrasados, amistosos suspendidos con marcador, equipos con menos
 de 5 jugadores, dorsales repetidos y torneos con fases sin partidos. El anotador recibe `attention: null`.
