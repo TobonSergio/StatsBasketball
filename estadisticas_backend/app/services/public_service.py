@@ -12,6 +12,7 @@ from app.core.enums import GameStatus
 from app.models.games import Game
 from app.models.games_players import GamePlayer
 from app.services import games_service
+from app.services.team_brief import team_brief
 
 _CACHE_TTL_SECONDS = 2.0
 _cache: dict = {}
@@ -42,8 +43,8 @@ def _game_header(g: Game) -> dict:
         "is_paused": g.is_paused,
         "home_score": g.home_score,
         "away_score": g.away_score,
-        "home_team": {"id_team": g.home_team.id_team, "name": g.home_team.name} if g.home_team else None,
-        "away_team": {"id_team": g.away_team.id_team, "name": g.away_team.name} if g.away_team else None,
+        "home_team": team_brief(g.home_team),
+        "away_team": team_brief(g.away_team),
         "tournament_name": g.tournament_name,
         "phase_name": g.phase_name,
         "group_name": g.group_name,

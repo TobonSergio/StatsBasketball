@@ -7,6 +7,7 @@ from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
+from app.services.team_brief import team_brief
 from app.services import scheduling_service, standings_service, timeouts_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
@@ -659,8 +660,8 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
             "status": game.status,
             "fk_home_id_team": home_id,
             "fk_away_id_team": away_id,
-            "home_team": {"id_team": game.home_team.id_team, "name": game.home_team.name} if game.home_team else None,
-            "away_team": {"id_team": game.away_team.id_team, "name": game.away_team.name} if game.away_team else None,
+            "home_team": team_brief(game.home_team),
+            "away_team": team_brief(game.away_team),
         },
         "players": players_data,
         "events": events_data,
