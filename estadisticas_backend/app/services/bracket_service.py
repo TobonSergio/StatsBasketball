@@ -18,7 +18,7 @@ from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
 from app.models.teams import Team
 from app.models.tournaments import TournamentGroup, TournamentPhase, TournamentStanding
-from app.services import scheduling_service, standings_service
+from app.services import rosters_service, scheduling_service, standings_service
 
 MAX_TEAMS = 64
 
@@ -196,12 +196,15 @@ def advance(db: Session, phase: TournamentPhase, base_date: Optional[datetime] =
             ready = bool(home and away) and not m["bye"]
             if ready and game is None:
                 when = base_date if (base_date and rnd["round"] == 1) else last_date + timedelta(days=min(interval_days, 2) or 1)
-                db.add(Game(
+                new_game = Game(
                     location=anchor, date=when, status=GameStatus.SCHEDULED.value,
                     fk_home_id_team=home["id_team"], fk_away_id_team=away["id_team"],
                     fk_id_tournament_phase=phase.id_phase, fk_id_tournament_group=group.id_group,
                     round=m["round"], slot=m["slot"],
-                ))
+                )
+                db.add(new_game)
+                db.flush()
+                rosters_service.convene_defaults(db, new_game)
                 created += 1
                 if base_date and rnd["round"] == 1:
                     base_date = base_date + timedelta(hours=2)
