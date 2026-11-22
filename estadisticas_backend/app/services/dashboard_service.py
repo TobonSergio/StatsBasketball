@@ -10,17 +10,20 @@ from datetime import timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.enums import GameStatus
+from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
 from app.models.players import Player
 from app.models.teams import Team
-from app.models.tournaments import Tournament
-from app.services import scheduling_service
+from app.models.tournaments import Tournament, TournamentPhase
+from app.services import scheduling_service, standings_service
 from app.services.public_service import _game_header
 from app.services.team_brief import team_brief
 
 MIN_ROSTER = 5          # menos jugadores que esto no alcanza para un partido (5 en cancha)
 LIST_LIMIT = 20         # tope de elementos por alerta: el detalle completo está en cada pantalla
+RECENT_LIMIT = 5        # últimos resultados en el home
+TOURNAMENT_LIMIT = 4    # torneos activos en el home
+TOP_STANDINGS = 3       # posiciones que se muestran por torneo
 
 
 def _games(db: Session):
@@ -104,6 +107,75 @@ def _tournaments_without_schedule(db: Session) -> list[dict]:
     return out[:LIST_LIMIT]
 
 
+def _recent(db: Session) -> list[dict]:
+    rows = _games(db).filter(Game.status == GameStatus.FINISHED.value).order_by(Game.date.desc(), Game.id_game.desc()).limit(RECENT_LIMIT).all()
+    return [_game_header(g) for g in rows]
+
+
+def _current_phase(phases, status_by_phase: dict):
+    """Fase "en curso": la primera (por orden) con partidos sin terminar; si no hay partidos, la primera; si todos
+    terminaron, la última."""
+    ordered = sorted(phases, key=lambda p: p.sequence_order or 0)
+    if not ordered:
+        return None
+    for phase in ordered:
+        counts = status_by_phase.get(phase.id_phase, {})
+        if counts.get(GameStatus.SCHEDULED.value, 0) or counts.get(GameStatus.IN_PROGRESS.value, 0):
+            return phase
+    with_games = [p for p in ordered if status_by_phase.get(p.id_phase)]
+    return with_games[-1] if with_games else ordered[0]
+
+
+def _tournament_cards(db: Session) -> list[dict]:
+    """Torneos sin terminar con su avance, el top de la tabla de la fase en curso y el próximo partido."""
+    tournaments = (
+        db.query(Tournament).options(joinedload(Tournament.phases).joinedload(TournamentPhase.groups))
+        .filter(Tournament.status != "finished").order_by(Tournament.created_at.desc(), Tournament.id_tournament.desc())
+        .limit(TOURNAMENT_LIMIT).all()
+    )
+    if not tournaments:
+        return []
+    phase_ids = [p.id_phase for t in tournaments for p in t.phases]
+    status_by_phase: dict = defaultdict(dict)
+    if phase_ids:
+        for phase_id, status, n in (
+            db.query(Game.fk_id_tournament_phase, Game.status, func.count(Game.id_game))
+            .filter(Game.fk_id_tournament_phase.in_(phase_ids)).group_by(Game.fk_id_tournament_phase, Game.status).all()
+        ):
+            status_by_phase[phase_id][status] = n
+
+    teams = {t.id_team: t for t in db.query(Team).all()}
+    cards = []
+    for t in tournaments:
+        mine = [p.id_phase for p in t.phases]
+        played = sum(status_by_phase[i].get(GameStatus.FINISHED.value, 0) for i in mine)
+        total = sum(n for i in mine for status, n in status_by_phase[i].items() if status != GameStatus.CANCELLED.value)
+        phase = _current_phase(t.phases, status_by_phase)
+
+        standings = []
+        if phase and normalize_phase_type(phase.type) == PhaseType.ROUND_ROBIN.value and phase.groups and status_by_phase[phase.id_phase].get(GameStatus.FINISHED.value, 0):
+            group = sorted(phase.groups, key=lambda g: g.id_group)[0]
+            for pos, line in enumerate(standings_service.ranked_group(db, group.id_group)[:TOP_STANDINGS], start=1):
+                team = teams.get(line.team_id)
+                standings.append({"position": pos, "team": team_brief(team), "played": line.played, "wins": line.wins, "losses": line.losses, "points": line.points})
+
+        next_game = None
+        if mine:
+            row = (
+                _games(db).filter(Game.fk_id_tournament_phase.in_(mine), Game.status.in_([GameStatus.IN_PROGRESS.value, GameStatus.SCHEDULED.value]))
+                .order_by(Game.date.asc()).first()
+            )
+            next_game = _game_header(row) if row else None
+
+        cards.append({
+            "id_tournament": t.id_tournament, "name": t.name, "status": t.status, "format": t.format, "category": t.category,
+            "progress": {"played": played, "total": total, "percent": round(played * 100 / total) if total else 0},
+            "phase": {"id_phase": phase.id_phase, "name": phase.name, "type": normalize_phase_type(phase.type)} if phase else None,
+            "standings": standings, "next_game": next_game,
+        })
+    return cards
+
+
 def attention(db: Session) -> dict:
     small, dupes = _roster_alerts(db)
     items = {
@@ -128,6 +200,8 @@ def build(db: Session, include_attention: bool = False) -> dict:
     return {
         "live": [_game_header(g) for g in live],
         "upcoming": [_game_header(g) for g in upcoming],
+        "recent": _recent(db),
+        "tournaments": _tournament_cards(db),
         "counts": {
             "teams": db.query(func.count(Team.id_team)).scalar() or 0,
             "players": db.query(func.count(Player.id_player)).scalar() or 0,
