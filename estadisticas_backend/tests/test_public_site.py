@@ -243,3 +243,62 @@ def test_public_routes_exist_and_stay_read_only():
     assert all(m == "GET" for m, _ in paths)
     assert {"/public/teams", "/public/teams/{team_id}", "/public/players/{player_id}", "/public/games/{game_id}/summary",
             "/public/tournaments", "/public/tournaments/{tournament_id}", "/public/leaders"} <= {p for _, p in paths}
+
+
+# ── seguimiento en vivo ────────────────────────────────────────────────────────────────────────
+@pytest.fixture()
+def live_game(db, two_teams):
+    a, b, pa, pb = two_teams
+    g = Game(location="Coliseo", date=datetime(2026, 12, 1, 10, 0), fk_home_id_team=a.id_team, fk_away_id_team=b.id_team,
+             status="IN_PROGRESS", home_score=7, away_score=3, current_quarter=2, remaining_time_seconds=400, is_paused=True,
+             possession_team_id=b.id_team, num_quarters=4, quarter_seconds=600)
+    db.add(g)
+    db.flush()
+    ha = _played(db, g, a, pa[0], points_two_made=2, points_two_attempts=3, points_three_made=1, points_three_attempts=1, rebounds=3, minutes_played=12)
+    hb = _played(db, g, b, pb[0], points_three_made=1, points_three_attempts=2, assists=1, minutes_played=10)
+    for gp, kind, q, t in [(ha, "two_made", 1, 540), (hb, "three_made", 1, 400), (ha, "three_made", 1, 300), (ha, "two_made", 2, 500),
+                           (ha, "rebound", 2, 450)]:
+        db.add(Event(event_type=kind, fk_id_game_player_events=gp.id_game_player, quarter=q, game_time_seconds=t))
+    from app.models.timeouts import GameTimeout
+    db.add(GameTimeout(fk_id_game=g.id_game, fk_id_team=a.id_team, quarter=2, game_time_seconds=420))
+    db.commit()
+    return g, a, b
+
+
+def test_live_view_has_quarters_possession_timeouts_and_analysis(db, live_game):
+    g, a, b = live_game
+    view = public_service.get_live_view(db, g.id_game)
+    assert view["game"]["fk_home_id_team"] == a.id_team and view["game"]["quarter_seconds"] == 600
+    assert view["possession_team_id"] == b.id_team
+    assert view["timeouts"]["home"]["used"] == 1
+    assert view["quarters"] == [{"quarter": 1, "home_score": 5, "away_score": 3}, {"quarter": 2, "home_score": 2, "away_score": 0}]
+    ins = view["insights"]
+    assert ins["has_data"] is True and ins["team_stats"]["home"]["points"] == 7
+    assert [p["home_score"] for p in ins["timeline"]["plays"] if p["points"]] == [2, 2, 5, 7]
+    assert ins["timeline"]["flow"][-1] == {"elapsed": 700, "home": 7, "away": 3, "diff": 4}
+    assert ins["timeline"]["plays_total"] == 5
+    assert ins["leaders"][0]["category"] == "points"
+
+
+def test_live_view_sends_only_recent_plays_but_keeps_the_whole_flow(db, live_game, monkeypatch):
+    g, a, b = live_game
+    monkeypatch.setattr(public_service, "LIVE_PLAYS_LIMIT", 2)
+    public_service._cache.clear()
+    ins = public_service.get_live_view(db, g.id_game)["insights"]
+    assert len(ins["timeline"]["plays"]) == 2 and ins["timeline"]["plays_total"] == 5
+    assert ins["timeline"]["plays"][-1]["event_type"] == "rebound"                  # las más recientes
+    assert len(ins["timeline"]["flow"]) == 5                                         # el flujo (solo anotaciones) va completo
+
+
+def test_live_view_for_a_game_without_plays_does_not_fail(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    g = _game(db, a, b, status="IN_PROGRESS")
+    g.current_quarter = 1
+    db.commit()
+    view = public_service.get_live_view(db, g.id_game)
+    assert view["quarters"] == [{"quarter": 1, "home_score": 0, "away_score": 0}]
+    assert view["insights"]["has_data"] is False and view["insights"]["timeline"]["plays"] == []
+
+
+def test_live_view_does_not_leak_birth_dates(db, live_game):
+    assert "birth" not in json.dumps(public_service.get_live_view(db, live_game[0].id_game), default=str).lower()
