@@ -98,6 +98,14 @@ def get_career_summary(
     """
     return players_service.get_player_career_stats(db, player_id)
 
+@router.get("/{player_id}/game-log")
+def get_player_game_log(player_id: int, limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    """Partidos jugados del jugador con rival, resultado y sus estadísticas (para el perfil)."""
+    if not players_service.get_player_by_id(db, player_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+    return players_service.get_player_game_log(db, player_id, limit)
+
+
 @router.get(
     "/{player_id}/stats-history",
     response_model=List[PlayerStatsResponse]
