@@ -33,6 +33,8 @@ _SCORER_RULES = [
     ("PATCH", r"^/games/\d+/timer$"),
     ("POST", r"^/games/\d+/(start|finish|overtime|end-quarter|clock/start|clock/pause)$"),
     ("POST", r"^/games/\d+/teams/\d+/starters$"),
+    ("POST", r"^/games/\d+/timeouts$"),
+    ("DELETE", r"^/games/\d+/timeouts/\d+$"),
 ]
 _ADMIN_ONLY_READ = re.compile(r"^/audit")
 

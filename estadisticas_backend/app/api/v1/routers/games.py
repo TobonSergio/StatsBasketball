@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.schemas.games import StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
-from app.services import audit_service, export_service, games_service
+from app.services import audit_service, export_service, games_service, timeouts_service
 from app.schemas.games_players import GamePlayerResponse
 
 
@@ -193,6 +193,26 @@ def reschedule_game(
                  "location": game.location, "reason": data.reason},
     )
     return game
+
+
+@router.post("/{game_id}/timeouts")
+def call_timeout(
+    game_id: int,
+    team_id: int = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Registra un tiempo muerto del equipo (FIBA: 2 en la 1.ª mitad, 3 en la 2.ª, 1 por prórroga) y pausa el reloj."""
+    result = timeouts_service.call_timeout(db, game_id, team_id)
+    audit_service.record(db, user, "game.timeout", "game", game_id, game_id=game_id, details={"team_id": team_id})
+    return result
+
+
+@router.delete("/{game_id}/timeouts/{timeout_id}")
+def undo_timeout(game_id: int, timeout_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    result = timeouts_service.undo_timeout(db, game_id, timeout_id)
+    audit_service.record(db, user, "game.timeout_undo", "game", game_id, game_id=game_id, details={"timeout_id": timeout_id})
+    return result
 
 
 @router.post("/{game_id}/cancel", response_model=GameResponse)

@@ -87,6 +87,18 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
             stats.free_throw_attempts += 1
         elif etype == "foul":
             stats.fouls += 1
+        elif etype == "technical_foul":
+            stats.technical_fouls = (stats.technical_fouls or 0) + 1
+            stats.fouls += 1
+        elif etype == "unsportsmanlike_foul":
+            stats.unsportsmanlike_fouls = (stats.unsportsmanlike_fouls or 0) + 1
+            stats.fouls += 1
+        elif etype == "offensive_rebound":
+            stats.offensive_rebounds = (stats.offensive_rebounds or 0) + 1
+            stats.rebounds += 1
+        elif etype == "defensive_rebound":
+            stats.defensive_rebounds = (stats.defensive_rebounds or 0) + 1
+            stats.rebounds += 1
         elif etype == "assist":
             stats.assists += 1
         elif etype == "block":
@@ -164,6 +176,18 @@ def delete_event(db: Session, event_id: int) -> bool:
         # Restar otros eventos
         elif etype == "foul":
             stats.fouls -= 1
+        elif etype == "technical_foul":
+            stats.technical_fouls = max(0, (stats.technical_fouls or 0) - 1)
+            stats.fouls -= 1
+        elif etype == "unsportsmanlike_foul":
+            stats.unsportsmanlike_fouls = max(0, (stats.unsportsmanlike_fouls or 0) - 1)
+            stats.fouls -= 1
+        elif etype == "offensive_rebound":
+            stats.offensive_rebounds = max(0, (stats.offensive_rebounds or 0) - 1)
+            stats.rebounds -= 1
+        elif etype == "defensive_rebound":
+            stats.defensive_rebounds = max(0, (stats.defensive_rebounds or 0) - 1)
+            stats.rebounds -= 1
         elif etype == "assist":
             stats.assists -= 1
         elif etype == "block":
@@ -190,3 +214,27 @@ def delete_event(db: Session, event_id: int) -> bool:
     db.delete(db_event)
     db.commit()
     return True
+
+
+def list_by_game(db: Session, game_id: int, limit: int = 300) -> list[dict]:
+    """Bitácora del partido (jugada a jugada), de la más reciente a la más antigua."""
+    from app.models.players import Player
+
+    rows = (
+        db.query(Event, GamePlayer, Player)
+        .join(GamePlayer, Event.fk_id_game_player_events == GamePlayer.id_game_player)
+        .join(Player, GamePlayer.fk_id_player == Player.id_player)
+        .filter(GamePlayer.fk_id_game == game_id)
+        .order_by(Event.id_event.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id_event": ev.id_event, "event_type": ev.event_type, "quarter": ev.quarter,
+            "game_time_seconds": ev.game_time_seconds, "timestamp": ev.timestamp,
+            "id_game_player": gp.id_game_player, "team_id": gp.fk_id_team,
+            "player_name": pl.name, "player_number": pl.number,
+        }
+        for ev, gp, pl in rows
+    ]
