@@ -21,9 +21,13 @@ router = APIRouter(
 )
 def create_player(
     player: PlayerCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return players_service.create_player(db, player)
+    created = players_service.create_player(db, player)
+    audit_service.record(db, user, "player.create", "player", created.id_player,
+                         details={"name": created.name, "number": created.number, "team_id": created.fk_id_team})
+    return created
 
 @router.get(
     "/",
@@ -62,30 +66,36 @@ def get_players_by_team(team_id: int, db: Session = Depends(get_db)):
 def update_player(
     player_id: int,
     player_data: PlayerUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     player = players_service.update_player(db, player_id, player_data)
-    
+
     if not player:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Player not found"
         )
-        
+
+    audit_service.record(db, user, "player.update", "player", player_id,
+                         details={"name": player.name, "fields": sorted(player_data.model_dump(exclude_unset=True).keys())})
     return player
 
 @router.delete(
     "/{player_id}",
     status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_player(player_id: int, db: Session = Depends(get_db)):
+def delete_player(player_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    existing = players_service.get_player_by_id(db, player_id)
+    info = {"name": existing.name, "number": existing.number, "team_id": existing.fk_id_team} if existing else {}
     success = players_service.delete_player(db, player_id)
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Player not found"
         )
+    audit_service.record(db, user, "player.delete", "player", player_id, details=info)
         
 @router.get("/{player_id}/career-stats")
 def get_career_summary(

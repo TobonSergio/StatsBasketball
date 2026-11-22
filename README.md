@@ -199,3 +199,14 @@ terminados), `/public/teams`, `/public/teams/{id}`, `/public/players/{id}`, `/pu
 
 **Privacidad:** del jugador se publica la **edad**, nunca la fecha de nacimiento (hay una prueba que revisa todas las
 respuestas públicas). Nada de auditoría, usuarios ni datos de gestión.
+
+
+## Actividad (solo administrador supremo)
+
+`GET /audit/activity` lista los movimientos de **todos** los usuarios (filtros: `user`, `group`, `since`, `until`, paginación).
+Solo responde al administrador supremo; el historial por partido (`GET /audit/?game_id=`) sigue siendo para cualquier admin.
+
+La auditoría registra: eventos y acciones de la mesa de control, crear/editar/borrar equipos, jugadores y partidos,
+reprogramar/cancelar/W.O., torneos (crear y generar), cambios manuales de estadísticas y la gestión de usuarios.
+Al borrar se guarda el nombre (o los equipos del partido) para que el movimiento siga siendo legible.
+Las fechas se filtran por día de Colombia (UTC-5).

@@ -22,9 +22,13 @@ router = APIRouter(
 
 def create_game(
     game:GameCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return games_service.create_game(db,game)
+    created = games_service.create_game(db, game)
+    audit_service.record(db, user, "game.create", "game", created.id_game, game_id=created.id_game,
+                         details={"date": created.date.isoformat() if created.date else None, "location": created.location})
+    return created
 
 @router.post(
     "/with-players",
@@ -33,9 +37,14 @@ def create_game(
 )
 def create_game_with_players(
     game_data: GameWithPlayersCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return games_service.create_game_with_players(db, game_data)
+    created = games_service.create_game_with_players(db, game_data)
+    audit_service.record(db, user, "game.create", "game", created.id_game, game_id=created.id_game,
+                         details={"date": created.date.isoformat() if created.date else None, "location": created.location,
+                                  "players": len(created.players)})
+    return created
 
 @router.patch("/substitution")
 def make_substitution(
@@ -85,15 +94,18 @@ def get_game(game_id:int, db:Session = Depends(get_db)):
 def update_game(
     game_id:int,
     game_data:GameUpdate,
-    db:Session = Depends(get_db)
+    db:Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     game = games_service.update_game(db, game_id, game_data)
-    
+
     if not game:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Game not found"
         )
+    audit_service.record(db, user, "game.update", "game", game_id, game_id=game_id,
+                         details={"fields": sorted(game_data.model_dump(exclude_unset=True).keys())})
     return game
 
 @router.patch(
@@ -103,7 +115,8 @@ def update_game(
 def patch_game(
     game_id: int,
     game_data: GameUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     game = games_service.update_game(db, game_id, game_data)
     if not game:
@@ -111,6 +124,8 @@ def patch_game(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Game not found"
         )
+    audit_service.record(db, user, "game.update", "game", game_id, game_id=game_id,
+                         details={"fields": sorted(game_data.model_dump(exclude_unset=True).keys())})
     return game
 
 @router.patch("/{game_id}/timer")
@@ -309,14 +324,18 @@ def download_box_score(game_id: int, db: Session = Depends(get_db)):
     "/{game_id}",
     status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_game(game_id:int, db:Session = Depends(get_db)):
+def delete_game(game_id:int, db:Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    existing = games_service.get_game_by_id(db, game_id)
+    info = ({"home": existing.home_team.name if existing.home_team else None, "away": existing.away_team.name if existing.away_team else None,
+             "status": existing.status} if existing else {})          # los nombres se guardan: el partido ya no existirá
     success = games_service.delete_game(db, game_id)
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Game not found"
         )
+    audit_service.record(db, user, "game.delete", "game", game_id, details=info)
         
 @router.post("/{game_id}/teams/{team_id}/starters")
 def set_starters(game_id: int, team_id: int, player_ids: list[int] = Body(..., min_length=1, max_length=12), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):

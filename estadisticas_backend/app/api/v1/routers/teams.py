@@ -21,9 +21,12 @@ router = APIRouter(
 )
 def create_team(
     team: TeamCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return teams_service.create_team(db, team)
+    created = teams_service.create_team(db, team)
+    audit_service.record(db, user, "team.create", "team", created.id_team, details={"name": created.name})
+    return created
 
 # 🔹 Listar equipos
 @router.get(
@@ -57,7 +60,8 @@ def get_team(team_id: int, db: Session = Depends(get_db)):
 def update_team(
     team_id: int,
     team_data: TeamUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     team = teams_service.update_team(db, team_id, team_data)
 
@@ -67,6 +71,8 @@ def update_team(
             detail="Team not found"
         )
 
+    audit_service.record(db, user, "team.update", "team", team_id,
+                         details={"name": team.name, "fields": sorted(team_data.model_dump(exclude_unset=True).keys())})
     return team
 
 # 🔹 Eliminar equipo
@@ -74,7 +80,9 @@ def update_team(
     "/{team_id}",
     status_code=status.HTTP_204_NO_CONTENT
 )
-def delete_team(team_id: int, db: Session = Depends(get_db)):
+def delete_team(team_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    existing = teams_service.get_team_by_id(db, team_id)
+    name = existing.name if existing else None            # el nombre se guarda antes de borrar
     success = teams_service.delete_team(db, team_id)
 
     if not success:
@@ -82,6 +90,7 @@ def delete_team(team_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Team not found"
         )
+    audit_service.record(db, user, "team.delete", "team", team_id, details={"name": name})
 
 
 
