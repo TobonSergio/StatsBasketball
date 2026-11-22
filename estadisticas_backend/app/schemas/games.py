@@ -99,6 +99,7 @@ class GameResponse(GameBase):
     phase_name: Optional[str] = None
     group_name: Optional[str] = None
     is_friendly: bool = True
+    is_forfeit: bool = False  # ganado por W.O.: el marcador es administrativo, no cuenta como baloncesto jugado
 
     class Config:
 
