@@ -328,3 +328,28 @@ def test_team_leaders_only_include_its_own_players(db, world):
     theirs = public_service.get_team(db, b.id_team)["leaders"]
     assert theirs["blocks"][0]["name"] == "B0" and theirs["points"][0]["name"] == "B0"
     assert public_service.leaders(db)["blocks"][0]["name"] == "B0"        # el global no cambia
+
+
+# ── perfil público: mejores marcas y puestos ────────────────────────────────────────────────────
+def test_player_highs_point_to_the_game_where_they_happened(db, world):
+    a, b, pa, pb, g1, g2 = world
+    highs = public_service.get_player(db, pa[0].id_player)["highs"]
+    assert highs["points"]["value"] == 18 and highs["points"]["game_id"] == g1.id_game and highs["points"]["opponent"] == "Bravo"
+    assert highs["rebounds"]["value"] == 7 and highs["rebounds"]["game_id"] == g2.id_game
+    assert highs["threes"]["value"] == 2 and "blocks" not in highs                 # nunca tapó: no hay marca
+
+
+def test_player_rankings_are_by_average_and_skip_zero_categories(db, world):
+    a, b, pa, pb, *_ = world
+    mine = public_service.get_player(db, pa[0].id_player)["rankings"]
+    assert mine["points"] == {"rank": 1, "of": 2, "average": 14.0}
+    assert mine["rebounds"]["rank"] == 1 and mine["assists"]["rank"] == 1
+    assert "blocks" not in mine                                                    # sin tapones no hay puesto
+    theirs = public_service.get_player(db, pb[0].id_player)["rankings"]
+    assert theirs["points"]["rank"] == 2 and theirs["blocks"] == {"rank": 1, "of": 1, "average": 2.0}
+
+
+def test_player_without_games_has_empty_highs_and_rankings(db, world):
+    a, b, pa, *_ = world
+    out = public_service.get_player(db, pa[2].id_player)
+    assert out["highs"] == {} and out["rankings"] == {}
