@@ -302,3 +302,21 @@ def test_live_view_for_a_game_without_plays_does_not_fail(db, two_teams):
 
 def test_live_view_does_not_leak_birth_dates(db, live_game):
     assert "birth" not in json.dumps(public_service.get_live_view(db, live_game[0].id_game), default=str).lower()
+
+
+# ── página de equipo: forma y líderes propios ───────────────────────────────────────────────────
+def test_team_has_recent_form_newest_first(db, world):
+    a = world[0]
+    form = public_service.get_team(db, a.id_team)["form"]
+    assert [f["result"] for f in form] == ["W", "W"]
+    assert form[0]["scored"] > form[0]["received"] and form[0]["rival"] == "Bravo"
+
+
+def test_team_leaders_only_include_its_own_players(db, world):
+    a, b = world[0], world[1]
+    mine = public_service.get_team(db, a.id_team)["leaders"]
+    assert mine["points"][0]["name"] == "A0" and mine["points"][0]["average"] == 14.0
+    assert mine["blocks"] == []                       # el único taponador es de Bravo
+    theirs = public_service.get_team(db, b.id_team)["leaders"]
+    assert theirs["blocks"][0]["name"] == "B0" and theirs["points"][0]["name"] == "B0"
+    assert public_service.leaders(db)["blocks"][0]["name"] == "B0"        # el global no cambia
