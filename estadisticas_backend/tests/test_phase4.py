@@ -66,6 +66,8 @@ def test_server_clock_start_pause_roundtrip(db, two_teams):
 
 def test_clock_cannot_start_after_finish(db, two_teams):
     game = make_game(db, two_teams)
+    db.get(Game, game.id_game).home_score = 10  # un partido no termina empatado
+    db.commit()
     games_service.finish_game(db, game.id_game)
     with pytest.raises(HTTPException) as e:
         games_service.start_clock(db, game.id_game)
@@ -186,6 +188,8 @@ def test_public_list_groups_by_status(db, two_teams):
     live = make_game(db, two_teams, day=2)
     games_service.start_game(db, live.id_game, adjust_date=True)
     done = make_game(db, two_teams, day=3)
+    db.get(Game, done.id_game).home_score = 10  # un partido no termina empatado
+    db.commit()
     games_service.finish_game(db, done.id_game)
     out = public_service.list_games(db)
     assert [g["id_game"] for g in out["live"]] == [live.id_game]

@@ -761,6 +761,8 @@ def finish_game(db: Session, game_id: int):
     if game.status == GameStatus.FINISHED.value:
         return game
 
+    tournaments_service.assert_can_finish(db, game)  # empatado: no cambia nada hasta jugar tiempo extra
+
     on_court = db.query(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
         GamePlayer.is_on_court == True  # noqa: E712
@@ -776,7 +778,6 @@ def finish_game(db: Session, game_id: int):
                     stats.minutes_played = (stats.minutes_played or 0.0) + played / 60.0
             gp.last_entry_time_seconds = None
 
-    tournaments_service.assert_can_finish(db, game)
     game.remaining_time_seconds = game.live_remaining_seconds
     game.status = GameStatus.FINISHED.value
     game.finished_at = utcnow()
