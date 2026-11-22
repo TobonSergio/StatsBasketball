@@ -158,6 +158,7 @@ erDiagram
 | `PUT/DELETE /teams/{id}/logo` · `PUT/DELETE /players/{id}/photo` | admin | Escudo/foto: cuerpo binario PNG, JPG o WebP (máx. 1 MB; el navegador la reduce a 256 px). Se guarda en Supabase Storage |
 | `POST /games/{id}/cancel` | admin | Cancela un amistoso programado, o lo **suspende** si está en juego y no puede terminar (empatado); reprogramarlo lo reactiva. Los de torneo no se cancelan |
 | `PUT /games/{id}/possession` | scorer | Flecha de posesión alterna (equipo que obtiene el próximo balón retenido) |
+| `GET/POST /users`, `PATCH/DELETE /users/{id}`, `POST /users/{id}/password` | admin | Gestión de usuarios (anotadores y administradores) vía Supabase Auth. Reglas: el administrador supremo (`app_metadata.super_admin`) no se elimina, desactiva ni degrada; solo él crea/promueve/degrada admins; nadie actúa sobre su propia cuenta; siempre queda un admin activo |
 | `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |
 | `GET /public/games` · `/public/games/{id}/live` | **público** | Vista de espectadores |
@@ -169,3 +170,21 @@ Documentación interactiva: `/docs` (OpenAPI).
 
 - Backend: `.github/workflows/backend-ci.yml` (ruff, pytest, migración Alembic).
 - Frontend: workflow propio en su repo (tests + build).
+
+
+## Usuarios y roles
+
+- **Administrador supremo**: cuenta de rescate, marcada con `app_metadata.super_admin = true`. Se marca una sola vez con SQL en Supabase:
+
+  ```sql
+  update auth.users
+     set raw_app_meta_data = raw_app_meta_data || '{"role":"admin","super_admin":true}'
+   where email = 'tu-correo';
+  ```
+  Después hay que cerrar sesión y volver a entrar para que el token traiga la marca.
+- **Administradores**: todo el mando operativo; los promueve solo el supremo.
+- **Anotadores**: solo la mesa de control; los crea cualquier administrador desde la pantalla **Usuarios**.
+- **Público**: no tiene cuenta; consulta `/live` (y el sitio público).
+- `DEFAULT_ROLE=viewer` en producción para que una cuenta sin rol nunca tenga poder. Hacerlo **después** de marcar al supremo.
+- Desactivar, eliminar o cambiar el rol surte efecto de inmediato (`app/core/revocation.py`), sin esperar a que caduque el token.
+- Requiere `SUPABASE_SERVICE_ROLE_KEY` (la misma de las imágenes).
