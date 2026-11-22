@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.players import Player
 from app.models.teams import Team
+from app.services import media_service
 from app.schemas.players import PlayerCreate, PlayerUpdate
 from app.models.players_stats import PlayerStats
 from app.models.games_players import GamePlayer
@@ -181,3 +182,19 @@ def get_player_game_history(db: Session, player_id: int, limit: int = 10):
         .limit(limit)
         .all()
     )
+
+def set_photo(db: Session, player_id: int, data: bytes):
+    """Sube la foto del jugador (PNG/JPG/WebP, máx. 1 MB) y guarda su URL pública."""
+    player = get_player_by_id(db, player_id)
+    if not player:
+        return None
+    media_service.replace_image(db, player, "photo_url", "players", player_id, data)
+    return player
+
+
+def remove_photo(db: Session, player_id: int):
+    player = get_player_by_id(db, player_id)
+    if not player:
+        return None
+    media_service.remove_image(db, player, "photo_url")
+    return player

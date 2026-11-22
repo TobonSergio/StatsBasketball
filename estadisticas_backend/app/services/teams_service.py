@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.games import Game
 from app.models.players import Player
 from app.models.teams import Team
+from app.services import media_service
 from app.schemas.teams import TeamCreate, TeamUpdate
 
 
@@ -88,3 +89,20 @@ def delete_team(db: Session, team_id: int) -> bool:
     db.delete(team)
     db.commit()
     return True
+
+
+def set_logo(db: Session, team_id: int, data: bytes):
+    """Sube el escudo del equipo (PNG/JPG/WebP, máx. 1 MB) y guarda su URL pública."""
+    team = db.query(Team).filter(Team.id_team == team_id).first()
+    if not team:
+        return None
+    media_service.replace_image(db, team, "logo_url", "teams", team_id, data)
+    return _with_count(db, [team])[0]
+
+
+def remove_logo(db: Session, team_id: int):
+    team = db.query(Team).filter(Team.id_team == team_id).first()
+    if not team:
+        return None
+    media_service.remove_image(db, team, "logo_url")
+    return _with_count(db, [team])[0]

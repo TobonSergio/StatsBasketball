@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import get_db
 from app.schemas.players import PlayerCreate, PlayerUpdate, PlayerResponse
 from app.schemas.players_stats import PlayerStatsResponse
-from app.services import players_service
+from app.core.auth import get_current_user
+from app.services import audit_service, media_service, players_service
 
 router = APIRouter(
     prefix="/players",
@@ -105,3 +107,32 @@ def get_player_stats_history(player_id: int, limit: int = 10, db: Session = Depe
     if not history:
         return []
     return history
+
+
+# 🔹 Foto del jugador (cuerpo binario PNG/JPG/WebP, máx. 1 MB; el navegador ya la recorta a 256 px)
+@router.put("/{player_id}/photo", response_model=PlayerResponse)
+async def upload_player_photo(
+    player_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    data = await media_service.read_image_body(request)
+    player = await run_in_threadpool(players_service.set_photo, db, player_id, data)
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+    audit_service.record(db, user, "player.photo", "player", player_id, details={"bytes": len(data)})
+    return player
+
+
+@router.delete("/{player_id}/photo", response_model=PlayerResponse)
+async def delete_player_photo(
+    player_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    player = await run_in_threadpool(players_service.remove_photo, db, player_id)
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+    audit_service.record(db, user, "player.photo_remove", "player", player_id)
+    return player
