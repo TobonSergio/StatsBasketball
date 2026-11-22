@@ -47,6 +47,9 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
 - **Mesa de control**: solo se anotan o deshacen acciones con el partido en juego; faltas técnicas y
   antideportivas (suman falta personal y de equipo; 2 de ellas = descalificación), rebotes ofensivos/defensivos,
   tiempos muertos y bitácora (migración `0006`).
+- **Equipos y jugadores**: perfil opcional del equipo (nombre corto, colores, categoría, ciudad, entrenador, escudo) y del
+  jugador (posición, capitán, estatura, nacimiento, foto). El nombre del equipo es único; el dorsal es único por equipo
+  (se valida en la API: puede haber repetidos antiguos) y hay un solo capitán por equipo (migración `0008`).
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
