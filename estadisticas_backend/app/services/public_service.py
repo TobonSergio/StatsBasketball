@@ -11,10 +11,13 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.enums import GameStatus
 from app.models.games import Game
 from app.models.games_players import GamePlayer
-from app.services import games_service
+from app.models.events import Event
+from app.models.timeouts import GameTimeout
+from app.services import games_service, summary_insights
 from app.services.team_brief import team_brief
 
 _CACHE_TTL_SECONDS = 2.0
+LIVE_PLAYS_LIMIT = 40   # jugadas recientes que se envían en el seguimiento en vivo (cada 3 s por espectador)
 _cache: dict = {}
 
 
@@ -43,6 +46,9 @@ def _game_header(g: Game) -> dict:
         "is_paused": g.is_paused,
         "home_score": g.home_score,
         "away_score": g.away_score,
+        "fk_home_id_team": g.fk_home_id_team,
+        "fk_away_id_team": g.fk_away_id_team,
+        "quarter_seconds": g.quarter_seconds or 600,
         "home_team": team_brief(g.home_team),
         "away_team": team_brief(g.away_team),
         "tournament_name": g.tournament_name,
@@ -114,9 +120,28 @@ def get_live_view(db: Session, game_id: int) -> Optional[dict]:
             })
         players.sort(key=lambda p: (-p["points"], p["name"]))
 
+        # Análisis en vivo: jugada a jugada, flujo del marcador, momentos clave, comparación de equipos y líderes
+        gp_ids = [gp.id_game_player for gp in rows]
+        events = []
+        if gp_ids:
+            events = (
+                db.query(Event).filter(Event.fk_id_game_player_events.in_(gp_ids))
+                .order_by(Event.quarter.asc(), Event.game_time_seconds.desc(), Event.id_event.asc()).all()
+            )
+        timeouts = db.query(GameTimeout).filter(GameTimeout.fk_id_game == game_id).order_by(GameTimeout.created_at.asc()).all()
+        insights = summary_insights.build_insights(g, rows, events, timeouts)
+        plays = insights["timeline"]["plays"]
+        quarters = summary_insights.quarter_scores(g, plays)
+        insights["timeline"]["plays_total"] = len(plays)
+        insights["timeline"]["plays"] = plays[-LIVE_PLAYS_LIMIT:]       # la cronología completa se ve en el resumen
+
         return {
             "game": _game_header(g),
             "fouls": live["fouls"] if live else None,
+            "timeouts": live["timeouts"] if live else None,
+            "possession_team_id": live["possession_team_id"] if live else None,
+            "quarters": quarters,
+            "insights": insights,
             "players": players,
         }
 

@@ -191,6 +191,20 @@ def timeline(game, events, gp_info) -> dict:
     }
 
 
+def quarter_scores(game, plays: list) -> list:
+    """Puntos de cada equipo por periodo, a partir de las jugadas de la cronología. Incluye los periodos sin anotación
+    hasta el actual, para que la tabla de parciales no tenga huecos."""
+    totals: dict = {}
+    for p in plays:
+        row = totals.setdefault(p["quarter"], {"quarter": p["quarter"], "home_score": 0, "away_score": 0})
+        if p["points"] and p["team_id"] == game.fk_home_id_team:
+            row["home_score"] += p["points"]
+        elif p["points"] and p["team_id"] == game.fk_away_id_team:
+            row["away_score"] += p["points"]
+    last = max([game.current_quarter or 1, *totals.keys()])
+    return [totals.get(q, {"quarter": q, "home_score": 0, "away_score": 0}) for q in range(1, last + 1)]
+
+
 def build_insights(game, game_players, events, timeouts) -> dict:
     home_id, away_id = game.fk_home_id_team, game.fk_away_id_team
     home_rows = [gp for gp in game_players if gp.fk_id_team == home_id]
