@@ -116,7 +116,15 @@ def get_live_view(db: Session, game_id: int) -> Optional[dict]:
                 "assists": s.assists if s else 0,
                 "steals": s.steals if s else 0,
                 "blocks": s.blocks if s else 0,
+                "turnovers": (s.turnovers or 0) if s else 0,
                 "fouls": s.fouls if s else 0,
+                "fg_made": ((s.points_two_made or 0) + (s.points_three_made or 0)) if s else 0,
+                "fg_attempts": ((s.points_two_attempts or 0) + (s.points_three_attempts or 0)) if s else 0,
+                "three_made": (s.points_three_made or 0) if s else 0,
+                "three_attempts": (s.points_three_attempts or 0) if s else 0,
+                "ft_made": (s.free_throw_made or 0) if s else 0,
+                "ft_attempts": (s.free_throw_attempts or 0) if s else 0,
+                "minutes": round(s.minutes_played or 0, 1) if s else 0,
             })
         players.sort(key=lambda p: (-p["points"], p["name"]))
 

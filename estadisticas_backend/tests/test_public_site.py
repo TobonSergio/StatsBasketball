@@ -302,3 +302,13 @@ def test_live_view_for_a_game_without_plays_does_not_fail(db, two_teams):
 
 def test_live_view_does_not_leak_birth_dates(db, live_game):
     assert "birth" not in json.dumps(public_service.get_live_view(db, live_game[0].id_game), default=str).lower()
+
+
+def test_live_players_carry_the_full_box_score_line(db, live_game):
+    g, a, b = live_game
+    rows = {p["team_id"]: p for p in public_service.get_live_view(db, g.id_game)["players"]}
+    home = rows[a.id_team]
+    assert (home["fg_made"], home["fg_attempts"]) == (3, 4)                  # 2 de 2 puntos + 1 triple
+    assert (home["three_made"], home["three_attempts"]) == (1, 1)
+    assert (home["ft_made"], home["ft_attempts"], home["turnovers"], home["minutes"]) == (0, 0, 0, 12.0)
+    assert (rows[b.id_team]["fg_made"], rows[b.id_team]["fg_attempts"]) == (1, 2)
