@@ -210,3 +210,10 @@ La auditoría registra: eventos y acciones de la mesa de control, crear/editar/b
 reprogramar/cancelar/W.O., torneos (crear y generar), cambios manuales de estadísticas y la gestión de usuarios.
 Al borrar se guarda el nombre (o los equipos del partido) para que el movimiento siga siendo legible.
 Las fechas se filtran por día de Colombia (UTC-5).
+
+
+## Home del staff
+
+`GET /dashboard/` (cualquier usuario con sesión): partidos en juego, próximos, conteos y, **solo para administradores**,
+las alertas que requieren atención (`attention`): partidos atrasados, amistosos suspendidos con marcador, equipos con menos
+de 5 jugadores, dorsales repetidos y torneos con fases sin partidos. El anotador recibe `attention: null`.
