@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
+from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.models.games_players import GamePlayer
 from app.schemas.players_stats import PlayerStatsCreate, PlayerStatsResponse, PlayerStatsUpdate
-from app.services import stats_service
+from app.services import audit_service, stats_service
 
 router = APIRouter(
     prefix="/stats",
@@ -45,9 +47,14 @@ def get_stats(
 def update_stats(
     gp_id: int,
     data: PlayerStatsUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return stats_service.update_player_stats(db, gp_id, data)
+    result = stats_service.update_player_stats(db, gp_id, data)
+    gp = db.get(GamePlayer, gp_id)
+    audit_service.record(db, user, "stats.update", "game_player", gp_id, game_id=gp.fk_id_game if gp else None,
+                         details={"fields": sorted(data.model_dump(exclude_unset=True).keys())})
+    return result
 
 @router.get(
     "/game/{game_id}",
@@ -69,6 +76,10 @@ def get_game_box_score(
 )
 def reset_stats(
     gp_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    return stats_service.reset_player_stats(db, gp_id)
+    result = stats_service.reset_player_stats(db, gp_id)
+    gp = db.get(GamePlayer, gp_id)
+    audit_service.record(db, user, "stats.reset", "game_player", gp_id, game_id=gp.fk_id_game if gp else None)
+    return result

@@ -79,6 +79,13 @@ def allowed_roles(method: str, path: str) -> set[str]:
     return {"admin"}
 
 
+def require_super_admin(claims: dict = Depends(get_current_user)) -> dict:
+    """Dependencia de ruta: solo el administrador supremo (cuenta marcada con app_metadata.super_admin)."""
+    if not is_super_admin(claims):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el administrador supremo puede ver esto")
+    return claims
+
+
 def authorize(request: Request, claims: dict = Depends(get_current_user)) -> dict:
     """Dependencia de router: exige sesión válida y el rol adecuado para método + ruta."""
     role = effective_role(claims)

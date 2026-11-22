@@ -11,8 +11,9 @@ router = APIRouter(prefix="/tournaments", tags=["Tournaments"])
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-def create_tournament(data: TournamentCreate, db: Session = Depends(get_db)):
+def create_tournament(data: TournamentCreate, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     t = tournaments_service.create_tournament(db, data)
+    audit_service.record(db, user, "tournament.create", "tournament", t.id_tournament, details={"name": t.name})
     return {"id_tournament": t.id_tournament, "name": t.name}
 
 
