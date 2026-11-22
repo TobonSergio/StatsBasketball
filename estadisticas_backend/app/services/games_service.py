@@ -8,7 +8,8 @@ from app.core.clock import live_remaining, utcnow
 from app.core.enums import GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
 from app.services.team_brief import team_brief
-from app.services import scheduling_service, standings_service, timeouts_service, tournaments_service
+from app.models.timeouts import GameTimeout
+from app.services import scheduling_service, standings_service, summary_insights, timeouts_service, tournaments_service
 from app.schemas.games import GameCreate, GameResponse, GameUpdate
 from fastapi import HTTPException
 from app.models.games_players import GamePlayer
@@ -536,14 +537,17 @@ def get_game_summary(db: Session, game_id: int):
         .filter(
             ((Game.fk_home_id_team == game.fk_home_id_team) & (Game.fk_away_id_team == game.fk_away_id_team))
             | ((Game.fk_home_id_team == game.fk_away_id_team) & (Game.fk_away_id_team == game.fk_home_id_team)),
-            Game.status.in_(["FINISHED", "finished", "Finished"])
+            Game.status.in_(["FINISHED", "finished", "Finished"]),
+            Game.id_game != game_id,  # el historial son los encuentros PREVIOS, sin contar este partido
         ).order_by(Game.date.desc()).all()
     )
 
-    return _build_summary_response(game, game_players, events, quarters_breakdown, h2h_games)
+    timeouts = db.query(GameTimeout).filter(GameTimeout.fk_id_game == game_id).order_by(GameTimeout.created_at.asc()).all()
+    insights = summary_insights.build_insights(game, game_players, events, timeouts)
+    return _build_summary_response(game, game_players, events, quarters_breakdown, h2h_games, insights)
 
 
-def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_games):
+def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_games, insights=None):
     home_id = game.fk_home_id_team
     away_id = game.fk_away_id_team
 
@@ -583,6 +587,9 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
             "away_team_id": g.fk_away_id_team,
             "home_team_name": g.home_team.name if g.home_team else "Local",
             "away_team_name": g.away_team.name if g.away_team else "Visitante",
+            "home_team": team_brief(g.home_team),
+            "away_team": team_brief(g.away_team),
+            "is_current": g.id_game == game.id_game,
             "home_score": h_score,
             "away_score": a_score,
             "winner_team_id": wid,
@@ -618,7 +625,8 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
             "player": {
                 "id_player": p.id_player, "name": p.name,
                 "number": p.number, "fk_id_team": p.fk_id_team,
-                "position": getattr(p, "position", None) or "Base"
+                "position": getattr(p, "position", None) or "Base",
+                "photo_url": getattr(p, "photo_url", None),
             } if p else None,
             "stats": {
                 "id_player_stats": s.id_player_stats,
@@ -671,7 +679,8 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
         "players": players_data,
         "events": events_data,
         "quarters_breakdown": quarters_breakdown,
-        "head_to_head": h2h
+        "head_to_head": h2h,
+        "insights": insights,
     }
 
 
