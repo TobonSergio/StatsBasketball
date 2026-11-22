@@ -486,6 +486,7 @@ def get_live_game_status(db: Session, game_id: int):
             "away_bonus": away_fouls >= 5
         },
         "is_paused": game.is_paused,
+        "possession_team_id": game.possession_team_id,
         "timeouts": timeouts_service.state(db, game),
     }
 
@@ -633,6 +634,10 @@ def _build_summary_response(game, game_players, events, quarters_breakdown, h2h_
                 "blocks": s.blocks or 0,
                 "turnovers": s.turnovers or 0,
                 "fouls": s.fouls or 0,
+                "offensive_rebounds": s.offensive_rebounds or 0,
+                "defensive_rebounds": s.defensive_rebounds or 0,
+                "technical_fouls": s.technical_fouls or 0,
+                "unsportsmanlike_fouls": s.unsportsmanlike_fouls or 0,
                 "minutes_played": float(s.minutes_played or 0.0)
             } if s else None
         })
@@ -906,7 +911,9 @@ def reschedule_game(db: Session, game_id: int, new_date: datetime, location: Opt
 
 def cancel_game(db: Session, game_id: int):
     """
-    Cancela un AMISTOSO programado (p. ej. uno atrasado que ya no se jugará).
+    Cancela un AMISTOSO programado (p. ej. uno atrasado que ya no se jugará) o SUSPENDE uno en juego que no puede
+    terminar (p. ej. empatado y sin condiciones para jugar tiempo extra): el reloj se detiene y las jugadas quedan.
+    Reprogramarlo lo reactiva y se puede reanudar. No cuenta para estadísticas de carrera mientras no finalice.
     Los partidos de torneo no se cancelan: afectarían la tabla o la llave; se reprograman o se declara W.O.
     """
     game = get_game_by_id(db, game_id)
@@ -919,9 +926,28 @@ def cancel_game(db: Session, game_id: int):
         )
     if game.status == GameStatus.CANCELLED.value:
         return game  # idempotente
-    if game.status != GameStatus.SCHEDULED.value:
-        raise HTTPException(status_code=409, detail="Solo se puede cancelar un partido que aún no se inició")
+    if game.status == GameStatus.FINISHED.value:
+        raise HTTPException(status_code=409, detail="El partido ya finalizó y no se puede cancelar")
+    if game.status == GameStatus.IN_PROGRESS.value:  # suspensión: congela el reloj con el tiempo real restante
+        game.remaining_time_seconds = game.live_remaining_seconds
+        game.is_paused = True
+        game.clock_started_at = None
     game.status = GameStatus.CANCELLED.value
+    db.commit()
+    db.refresh(game)
+    return game
+
+
+def set_possession(db: Session, game_id: int, team_id):
+    """Define (o limpia) la flecha de posesión alterna. El equipo debe jugar el partido."""
+    game = get_game_by_id(db, game_id)
+    if not game:
+        return None
+    if game.status in (GameStatus.FINISHED.value, GameStatus.CANCELLED.value):
+        raise HTTPException(status_code=409, detail="El partido ya no admite cambios")
+    if team_id is not None and team_id not in (game.fk_home_id_team, game.fk_away_id_team):
+        raise HTTPException(status_code=400, detail="El equipo no participa en este partido")
+    game.possession_team_id = team_id
     db.commit()
     db.refresh(game)
     return game

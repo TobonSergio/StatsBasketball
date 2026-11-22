@@ -34,6 +34,7 @@ _SCORER_RULES = [
     ("POST", r"^/games/\d+/(start|finish|overtime|end-quarter|clock/start|clock/pause)$"),
     ("POST", r"^/games/\d+/teams/\d+/starters$"),
     ("PUT", r"^/games/\d+/teams/\d+/roster$"),
+    ("PUT", r"^/games/\d+/possession$"),
     ("POST", r"^/games/\d+/timeouts$"),
     ("DELETE", r"^/games/\d+/timeouts/\d+$"),
 ]

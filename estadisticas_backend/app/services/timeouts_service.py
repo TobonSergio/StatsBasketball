@@ -16,6 +16,8 @@ from app.models.timeouts import GameTimeout
 FIRST_HALF_TIMEOUTS = 2
 SECOND_HALF_TIMEOUTS = 3
 OVERTIME_TIMEOUTS = 1
+LAST_MINUTES_SECONDS = 120   # últimos 2 minutos del último periodo
+LAST_MINUTES_MAX = 2         # máximo de tiempos muertos por equipo en ese tramo
 
 
 def window(period: int, num_quarters: int) -> tuple[int, int, int]:
@@ -62,6 +64,18 @@ def call_timeout(db: Session, game_id: int, team_id: int) -> dict:
         )
 
     remaining = live_remaining(game.remaining_time_seconds, game.clock_started_at, game.is_paused)
+    # FIBA: como máximo 2 tiempos muertos por equipo en los últimos 2 minutos del 4.º periodo
+    period = game.current_quarter or 1
+    if period == (game.num_quarters or 4) and remaining <= LAST_MINUTES_SECONDS:
+        in_last = db.query(GameTimeout).filter(
+            GameTimeout.fk_id_game == game_id, GameTimeout.fk_id_team == team_id,
+            GameTimeout.quarter == period, GameTimeout.game_time_seconds <= LAST_MINUTES_SECONDS,
+        ).count()
+        if in_last >= LAST_MINUTES_MAX:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Máximo {LAST_MINUTES_MAX} tiempos muertos por equipo en los últimos 2 minutos del partido.",
+            )
     if not game.is_paused:  # un tiempo muerto detiene el reloj
         game.remaining_time_seconds = remaining
         game.is_paused = True

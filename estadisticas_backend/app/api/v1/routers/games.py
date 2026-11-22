@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.core.database import get_db
-from app.schemas.games import StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
+from app.schemas.games import PossessionRequest, StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
 from app.services import audit_service, export_service, games_service, rosters_service, timeouts_service
@@ -192,6 +192,21 @@ def reschedule_game(
         details={"from": previous.isoformat() if previous else None, "to": game.date.isoformat(),
                  "location": game.location, "reason": data.reason},
     )
+    return game
+
+
+@router.put("/{game_id}/possession", response_model=GameResponse)
+def set_possession(
+    game_id: int,
+    data: PossessionRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Flecha de posesión alterna: equipo que obtiene el próximo balón retenido."""
+    game = games_service.set_possession(db, game_id, data.team_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    audit_service.record(db, user, "game.possession", "game", game_id, game_id=game_id, details={"team_id": data.team_id})
     return game
 
 

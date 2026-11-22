@@ -50,6 +50,8 @@ Navegador ──(JWT de Supabase)──► FastAPI ──► PostgreSQL (Supabas
 - **Equipos y jugadores**: perfil opcional del equipo (nombre corto, colores, categoría, ciudad, entrenador, escudo) y del
   jugador (posición, capitán, estatura, nacimiento, foto). El nombre del equipo es único; el dorsal es único por equipo
   (se valida en la API: puede haber repetidos antiguos) y hay un solo capitán por equipo (migración `0008`).
+- **Jugadores**: edad entre 6 y 80 años si se informa la fecha de nacimiento (constantes `MIN_AGE`/`MAX_AGE`).
+  Tiempos muertos FIBA incluyendo máximo 2 por equipo en los últimos 2 minutos del 4.º periodo.
 - Migraciones `0003` y `0004` (aplicar antes de desplegar). Código: `standings_service`, `scheduling_service`,
   `bracket_service`.
 
@@ -154,7 +156,8 @@ erDiagram
 | `POST /games/{id}/timeouts` · `DELETE /games/{id}/timeouts/{tid}` | scorer | Tiempo muerto (FIBA: 2 en la 1.ª mitad, 3 en la 2.ª, 1 por prórroga); pausa el reloj |
 | `GET /events/game/{id}` | viewer | Bitácora jugada a jugada |
 | `PUT/DELETE /teams/{id}/logo` · `PUT/DELETE /players/{id}/photo` | admin | Escudo/foto: cuerpo binario PNG, JPG o WebP (máx. 1 MB; el navegador la reduce a 256 px). Se guarda en Supabase Storage |
-| `POST /games/{id}/cancel` | admin | Cancela un amistoso programado que no se jugará (los de torneo no se cancelan) |
+| `POST /games/{id}/cancel` | admin | Cancela un amistoso programado, o lo **suspende** si está en juego y no puede terminar (empatado); reprogramarlo lo reactiva. Los de torneo no se cancelan |
+| `PUT /games/{id}/possession` | scorer | Flecha de posesión alterna (equipo que obtiene el próximo balón retenido) |
 | `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |
 | `GET /public/games` · `/public/games/{id}/live` | **público** | Vista de espectadores |

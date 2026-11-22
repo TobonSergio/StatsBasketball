@@ -51,6 +51,11 @@ class GameUpdate(BaseModel): # Cambiado a BaseModel para que todo sea opcional d
             raise ValueError(f"status inválido: {v}. Use {[s.value for s in GameStatus]}")
         return normalized
 
+class PossessionRequest(BaseModel):
+    """Flecha de posesión: equipo que obtiene el próximo balón retenido (null = sin definir)."""
+    team_id: Optional[int] = None
+
+
 class StartRequest(BaseModel):
     """Inicio del partido. `adjust_date` confirma un inicio anticipado y mueve la fecha a ahora."""
     adjust_date: bool = False
@@ -88,6 +93,7 @@ class GameResponse(GameBase):
     started_at: Optional[datetime] = None  # momento real (UTC) en que se inició el partido
     finished_at: Optional[datetime] = None
     is_overdue: bool = False  # programado, ya pasó su hora y nadie lo inició
+    possession_team_id: Optional[int] = None  # flecha de posesión alterna
     tournament_id: Optional[int] = None
     tournament_name: Optional[str] = None
     phase_name: Optional[str] = None
