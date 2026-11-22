@@ -22,6 +22,14 @@ La base de Supabase **ya existía** antes de Alembic, así que las migraciones d
 5. Si el modelo cambió, añade/ajusta tests (usan `Base.metadata.create_all` sobre SQLite, así que el modelo
    debe seguir siendo portable: nada específico de Postgres en `app/models`).
 
+## Trampa: ENUMs nativos de Postgres (solo fallan en producción)
+`events.event_type` es un ENUM de Supabase con valores fijos. Si añades un valor a `EventType` (u otro campo
+que sea ENUM en la base), hace falta una migración `ALTER TYPE ... ADD VALUE IF NOT EXISTS` (ver `0007`),
+dentro de `op.get_context().autocommit_block()`. SQLite (tests) no valida enums: el fallo aparecería solo en
+producción como "invalid input value for enum". `tests/test_event_enum_sync.py` protege el caso de `event_type`.
+Antes de desplegar cambios de esquema, comprueba contra la base real con una consulta de solo lectura
+(p. ej. `get_live_game_status`) para detectar este tipo de desajustes.
+
 ## Aplicar
 `python -m alembic upgrade head` MODIFICA la base real: avisa al usuario, recomienda respaldo
 (Supabase → Database → Backups) y, si falla por el pooler (6543), usar la conexión directa (5432) solo para ese comando.
