@@ -280,6 +280,37 @@ def get_team(db: Session, team_id: int) -> dict:
     return data
 
 
+HIGH_CATEGORIES = [("points", "points"), ("rebounds", "rebounds"), ("assists", "assists"), ("steals", "steals"),
+                   ("blocks", "blocks"), ("threes", "p3_made")]
+
+
+def _highs(log: list) -> dict:
+    """Mejor marca del jugador en cada categoría, con el partido en que la logró (empates: el más reciente)."""
+    out = {}
+    for key, field in HIGH_CATEGORIES:
+        best = None
+        for g in log:                                    # el registro llega con el más reciente primero
+            if (g.get(field) or 0) > 0 and (best is None or g[field] > best[field]):
+                best = g
+        if best:
+            out[key] = {"value": best[field], "game_id": best["id_game"], "date": best["date"],
+                        "opponent": (best["opponent"] or {}).get("name") if best.get("opponent") else None}
+    return out
+
+
+def _rankings(db: Session, player_id: int) -> dict:
+    """Puesto del jugador entre todos los que han jugado, por promedio por partido (solo categorías en las que anotó)."""
+    table = leaders(db, 100000)
+    out = {}
+    for key, _ in LEADER_CATEGORIES:
+        rows = table.get(key) or []
+        for i, r in enumerate(rows):
+            if r["player_id"] == player_id:
+                out[key] = {"rank": i + 1, "of": len(rows), "average": r["average"]}
+                break
+    return out
+
+
 def get_player(db: Session, player_id: int) -> dict:
     def build():
         p = db.get(Player, player_id)
@@ -290,6 +321,8 @@ def get_player(db: Session, player_id: int) -> dict:
             "team": _team_profile(p.team) if p.team else None,
             "career": players_service.get_player_career_stats(db, player_id),
             "game_log": players_service.get_player_game_log(db, player_id, 20),
+            "highs": _highs(players_service.get_player_game_log(db, player_id, 1000)),
+            "rankings": _rankings(db, player_id),
         }
 
     data = _cached_long(("player", player_id), build)
