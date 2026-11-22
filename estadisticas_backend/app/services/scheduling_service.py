@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
 from app.models.teams import Team
+from app.services import rosters_service
 from app.models.tournaments import Tournament, TournamentPhase, TournamentStanding
 
 DEFAULT_LOCATION = "Por definir"
@@ -208,12 +209,15 @@ def generate_round_robin(
             for slot, (home, away) in enumerate(pairs, start=1):
                 # choca con un amistoso u otro partido ya agendado de esos equipos
                 assert_teams_available(db, home, away, when)
-                db.add(Game(
+                game = Game(
                     location=place, date=when, status=GameStatus.SCHEDULED.value,
                     fk_home_id_team=home, fk_away_id_team=away,
                     fk_id_tournament_phase=phase.id_phase, fk_id_tournament_group=group.id_group,
                     round=r_idx, slot=slot,
-                ))
+                )
+                db.add(game)
+                db.flush()
+                rosters_service.convene_defaults(db, game)  # plantilla de ambos equipos convocada por defecto
                 created += 1
 
     db.commit()

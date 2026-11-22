@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.schemas.games import StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
-from app.services import audit_service, export_service, games_service, timeouts_service
+from app.services import audit_service, export_service, games_service, rosters_service, timeouts_service
 from app.schemas.games_players import GamePlayerResponse
 
 
@@ -193,6 +193,20 @@ def reschedule_game(
                  "location": game.location, "reason": data.reason},
     )
     return game
+
+
+@router.put("/{game_id}/teams/{team_id}/roster")
+def set_roster(
+    game_id: int,
+    team_id: int,
+    player_ids: list[int] = Body(..., embed=True, max_length=12),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Define quiénes están convocados (5 a 12 jugadores del equipo). Los partidos de torneo nacen con la plantilla."""
+    result = rosters_service.convene(db, game_id, team_id, player_ids)
+    audit_service.record(db, user, "game.roster", "game", game_id, game_id=game_id, details=result)
+    return result
 
 
 @router.post("/{game_id}/timeouts")
