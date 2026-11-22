@@ -76,7 +76,7 @@ def test_put_status_finished_also_updates_standings(db, two_teams):
 def test_non_tournament_game_does_not_touch_standings(db, two_teams):
     a, b = two_teams[0], two_teams[1]
     game = Game(location="X", date=datetime(2025, 1, 1), fk_home_id_team=a.id_team,
-                fk_away_id_team=b.id_team, status="IN_PROGRESS")
+                fk_away_id_team=b.id_team, status="IN_PROGRESS", home_score=3, away_score=1)
     db.add(game)
     db.commit()
     assert games_service.finish_game(db, game.id_game).status == "FINISHED"

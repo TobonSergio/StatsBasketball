@@ -168,12 +168,15 @@ def apply_game_result(db: Session, game: Game) -> bool:
 
 
 def assert_can_finish(db: Session, game: Game) -> None:
-    """En playoffs no puede haber empate: debe jugarse tiempo extra."""
-    if game.fk_id_tournament_phase is None:
-        return
-    phase = db.get(TournamentPhase, game.fk_id_tournament_phase)
-    if phase and normalize_phase_type(phase.type) == PhaseType.KNOCKOUT.value             and (game.home_score or 0) == (game.away_score or 0):
-        raise HTTPException(status_code=409, detail="Empate en playoffs: juega tiempo extra antes de finalizar")
+    """
+    Un partido de baloncesto no termina empatado: debe jugarse tiempo extra. Aplica a TODOS los partidos
+    (amistosos, ligas y playoffs). El W.O. (forfeit) no pasa por aquí: se cierra con marcador 20-0.
+    """
+    if (game.home_score or 0) == (game.away_score or 0):
+        raise HTTPException(
+            status_code=409,
+            detail="El partido está empatado: juega tiempo extra antes de finalizar.",
+        )
 
 
 def refresh_status(db: Session, tournament_id: int) -> None:

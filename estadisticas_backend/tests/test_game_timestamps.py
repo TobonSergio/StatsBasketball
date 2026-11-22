@@ -33,6 +33,8 @@ def test_start_records_once_and_finish_records_end(db, two_teams):
     games_service.start_game(db, g.id_game)           # idempotente: no se sobrescribe
     games_service.start_clock(db, g.id_game)
     assert db.get(Game, g.id_game).started_at == first
+    db.get(Game, g.id_game).home_score = 10  # un partido no termina empatado
+    db.commit()
     games_service.finish_game(db, g.id_game)
     done = db.get(Game, g.id_game)
     assert done.finished_at is not None and done.finished_at >= done.started_at.replace(tzinfo=done.finished_at.tzinfo)
