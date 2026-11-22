@@ -2,17 +2,51 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.players import Player
+from app.models.teams import Team
 from app.schemas.players import PlayerCreate, PlayerUpdate
 from app.models.players_stats import PlayerStats
 from app.models.games_players import GamePlayer
 
-def create_player(db:Session, player_data:PlayerCreate) -> Player:
-    player = Player(
-        name = player_data.name,
-        number = str(player_data.number),
-        fk_id_team = player_data.fk_id_team
-    )
+def _number_key(number) -> int:
+    """'5' y '05' son el mismo dorsal."""
+    try:
+        return int(str(number).strip())
+    except (TypeError, ValueError):
+        return -1
+
+
+def _assert_number_free(db: Session, team_id: int, number: str, exclude_player_id: int | None = None) -> None:
+    """El dorsal no puede repetirse dentro de un equipo (en la mesa de control identifica al jugador)."""
+    wanted = _number_key(number)
+    q = db.query(Player).filter(Player.fk_id_team == team_id)
+    if exclude_player_id is not None:
+        q = q.filter(Player.id_player != exclude_player_id)
+    for other in q.all():
+        if _number_key(other.number) == wanted:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"El dorsal {wanted} ya lo usa {other.name} en este equipo",
+            )
+
+
+def _make_only_captain(db: Session, player: Player) -> None:
+    """Un equipo tiene un solo capitán."""
+    db.query(Player).filter(
+        Player.fk_id_team == player.fk_id_team, Player.id_player != player.id_player, Player.is_captain.is_(True)
+    ).update({"is_captain": False}, synchronize_session=False)
+
+
+def create_player(db: Session, player_data: PlayerCreate) -> Player:
+    team = db.query(Team).filter(Team.id_team == player_data.fk_id_team).first()
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    _assert_number_free(db, player_data.fk_id_team, player_data.number)
+
+    player = Player(**player_data.model_dump())
     db.add(player)
+    db.flush()
+    if player.is_captain:
+        _make_only_captain(db, player)
     db.commit()
     db.refresh(player)
     return player
@@ -24,7 +58,9 @@ def get_player_by_id(db:Session, player_id:int):
     return db.query(Player).filter(Player.id_player == player_id).first()
 
 def get_players_by_team(db:Session, team_id:int):
-    return db.query(Player).filter(Player.fk_id_team == team_id).all()
+    """Plantilla ordenada por dorsal."""
+    players = db.query(Player).filter(Player.fk_id_team == team_id).all()
+    return sorted(players, key=lambda p: (_number_key(p.number) if _number_key(p.number) >= 0 else 999, p.name.lower()))
 
 def update_player(db: Session, player_id: int, player_data: PlayerUpdate):
     player = get_player_by_id(db, player_id)
@@ -32,18 +68,29 @@ def update_player(db: Session, player_id: int, player_data: PlayerUpdate):
     if not player:
         return None
 
-    if player_data.name is not None:
-        player.name = player_data.name
-    
-    if player_data.number is not None:
-        player.number = str(player_data.number)
-        
-    if player_data.fk_id_team is not None:
-        player.fk_id_team = player_data.fk_id_team
-           
+    changes = player_data.model_dump(exclude_unset=True)
+    for required in ("name", "number", "fk_id_team", "is_captain"):
+        if changes.get(required) is None:
+            changes.pop(required, None)  # son obligatorios: enviar null no los borra
+
+    team_id = changes.get("fk_id_team", player.fk_id_team)
+    if "fk_id_team" in changes and not db.query(Team).filter(Team.id_team == team_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    number = changes.get("number", player.number)
+    if "number" in changes or "fk_id_team" in changes:
+        _assert_number_free(db, team_id, number, exclude_player_id=player_id)
+
+    for key, value in changes.items():
+        setattr(player, key, value)
+    if "fk_id_team" in changes:
+        player.is_captain = changes.get("is_captain", False)  # al cambiar de equipo no arrastra la capitanía
+
+    db.flush()
+    if player.is_captain:
+        _make_only_captain(db, player)
     db.commit()
     db.refresh(player)
-    return player 
+    return player
 
 def delete_player(db:Session, player_id:int) -> bool:
     player = get_player_by_id(db, player_id)
