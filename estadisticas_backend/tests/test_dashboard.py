@@ -7,12 +7,19 @@ from app.api.v1.routers import dashboard as dashboard_router
 from app.models.games import Game
 from app.models.players import Player
 from app.models.teams import Team
-from app.services import dashboard_service
+from app.services import audit_service, dashboard_service, public_service
 from tests.test_tournaments import make_tournament
 
 ADMIN = {"sub": "a1", "email": "boss@x.com", "app_metadata": {"role": "admin"}}
 SCORER = {"sub": "s1", "email": "anna@x.com", "app_metadata": {"role": "scorer"}}
 SUPER = {"sub": "r1", "email": "root@x.com", "app_metadata": {"role": "admin", "super_admin": True}}
+@pytest.fixture(autouse=True)
+def _clean_cache():
+    public_service._cache.clear()          # los líderes se guardan 20 s en memoria: que una prueba no vea los de otra
+    yield
+    public_service._cache.clear()
+
+
 # el reloj de las pruebas está fijo en 1/1/2020 12:00 (ver conftest)
 PAST = datetime(2019, 12, 31, 10, 0)
 SOON = datetime(2020, 1, 1, 18, 0)
@@ -279,3 +286,104 @@ def test_new_sections_keep_the_payload_free_of_sensitive_data(db, two_teams):
     tournament_game(db, t, a, b, datetime(2019, 12, 20), "FINISHED", home_score=80, away_score=70)
     blob = json.dumps(dashboard_service.build(db), default=str).lower()
     assert "birth" not in blob and "@" not in blob
+
+
+# ── rendimiento ────────────────────────────────────────────────────────────────────────────────
+def test_totals_count_only_played_games_not_forfeits(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    game(db, a, b, datetime(2019, 12, 20), "FINISHED", home_score=80, away_score=70)
+    top = game(db, b, a, datetime(2019, 12, 22), "FINISHED", home_score=90, away_score=85)
+    game(db, a, b, datetime(2019, 12, 23), "FINISHED", home_score=20, away_score=0, is_forfeit=True)     # W.O.: no es baloncesto jugado
+    game(db, a, b, SOON)
+    totals = dashboard_service.build(db)["performance"]["totals"]
+    assert (totals["games_played"], totals["total_points"], totals["average_points"]) == (2, 325, 162.5)
+    assert totals["highest_scoring"]["id_game"] == top.id_game and totals["highest_scoring"]["total"] == 175
+    assert totals["highest_scoring"]["home_team"]["name"] == "Bravo"
+
+
+def test_totals_are_zero_without_games(db, two_teams):
+    assert dashboard_service.build(db)["performance"]["totals"] == {"games_played": 0, "total_points": 0, "average_points": 0.0, "highest_scoring": None}
+
+
+def test_weekly_activity_has_eight_weeks_filled_with_zeros(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    game(db, a, b, datetime(2019, 12, 31, 10), "FINISHED", home_score=60, away_score=50)         # semana del lunes 30/12
+    game(db, a, b, datetime(2019, 12, 30, 9), "FINISHED", home_score=40, away_score=30)          # el mismo lunes: misma semana
+    game(db, a, b, datetime(2019, 12, 23, 18), "FINISHED", home_score=70, away_score=65)         # semana del 23/12
+    game(db, a, b, datetime(2019, 11, 1), "FINISHED", home_score=99, away_score=99)              # anterior a las 8 semanas: no cuenta
+    game(db, a, b, datetime(2019, 12, 31), "FINISHED", home_score=20, away_score=0, is_forfeit=True)
+    game(db, a, b, datetime(2019, 12, 31), "SCHEDULED")
+    weekly = dashboard_service.build(db)["performance"]["weekly"]
+    assert len(weekly) == dashboard_service.WEEKS == 8
+    assert [w["week_start"] for w in weekly][0] == "2019-11-11" and weekly[-1]["week_start"] == "2019-12-30"      # de más antigua a la actual
+    assert all(w["week_start"] < nxt["week_start"] for w, nxt in zip(weekly, weekly[1:]))
+    assert weekly[-1] == {"week_start": "2019-12-30", "games": 2, "points": 180}
+    assert weekly[-2] == {"week_start": "2019-12-23", "games": 1, "points": 135}
+    assert sum(w["games"] for w in weekly[:-2]) == 0
+
+
+def test_weeks_start_on_monday_even_for_sunday_games(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    game(db, a, b, datetime(2019, 12, 29, 23, 30), "FINISHED", home_score=50, away_score=40)      # domingo 29/12 → semana del 23/12
+    weekly = {w["week_start"]: w for w in dashboard_service.build(db)["performance"]["weekly"]}
+    assert weekly["2019-12-23"]["games"] == 1 and weekly["2019-12-30"]["games"] == 0
+
+
+def test_leaders_come_from_played_games_with_a_limit_of_three(db, two_teams):
+    from app.models.games_players import GamePlayer
+    from app.models.players_stats import PlayerStats
+    a, b, pa, _ = two_teams
+    g = game(db, a, b, datetime(2019, 12, 20), "FINISHED", home_score=80, away_score=70)
+    for i, pts in enumerate([10, 8, 6, 4, 2]):
+        gp = GamePlayer(fk_id_game=g.id_game, fk_id_player=pa[i].id_player, fk_id_team=a.id_team)
+        db.add(gp)
+        db.flush()
+        db.add(PlayerStats(fk_id_game_player=gp.id_game_player, points_two_made=pts // 2, points_two_attempts=pts // 2 + 1, minutes_played=10))
+    db.commit()
+    leaders = dashboard_service.build(db)["performance"]["leaders"]
+    assert [x["name"] for x in leaders["points"]] == ["A0", "A1", "A2"] and leaders["points"][0]["average"] == 10.0
+    assert set(leaders) == {"points", "rebounds", "assists", "steals", "blocks"}
+
+
+# ── actividad reciente (solo el supremo) ───────────────────────────────────────────────────────
+def test_only_the_super_admin_receives_recent_activity(db, two_teams):
+    audit_service.record(db, {"sub": "x", "email": "boss@x.com"}, "team.create", "team", 1, details={"name": "Halcones"})
+    assert dashboard_router.dashboard(db, SUPER)["activity"]["items"][0]["action"] == "team.create"
+    assert dashboard_router.dashboard(db, ADMIN)["activity"] is None
+    assert dashboard_router.dashboard(db, SCORER)["activity"] is None
+    assert dashboard_service.build(db)["activity"] is None
+
+
+def test_recent_activity_is_the_latest_few_with_total_and_game_labels(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    g = game(db, a, b, SOON)
+    for i in range(dashboard_service.ACTIVITY_LIMIT + 3):
+        audit_service.record(db, {"sub": "x", "email": "boss@x.com"}, "game.start" if i == 0 else "team.update", "game", g.id_game if i == 0 else None, game_id=g.id_game if i == 0 else None)
+    out = dashboard_service.build(db, include_activity=True)["activity"]
+    assert out["total"] == dashboard_service.ACTIVITY_LIMIT + 3 and len(out["items"]) == dashboard_service.ACTIVITY_LIMIT
+    assert out["items"][0]["id_audit"] > out["items"][-1]["id_audit"]                      # el más reciente primero
+    latest_again = dashboard_service.build(db, include_activity=True)["activity"]
+    assert latest_again["items"][0]["action"] == "team.update"
+    full = audit_service.query_activity(db, limit=50)[1]
+    labels = audit_service.game_labels(db, [e.game_id for e in full])
+    assert audit_service.entry_to_dict(full[-1], labels)["game_label"] == "Alpha vs Bravo"
+
+
+def test_activity_is_empty_but_present_for_the_super_admin_without_movements(db):
+    assert dashboard_service.build(db, include_activity=True)["activity"] == {"total": 0, "items": []}
+
+
+def test_the_endpoint_and_the_activity_page_share_one_serialization(db, two_teams):
+    from app.api.v1.routers import audit as audit_router
+    audit_service.record(db, {"sub": "x", "email": "boss@x.com"}, "team.create", "team", 1, details={"name": "Halcones"})
+    page = audit_router.activity(user=None, group=None, since=None, until=None, limit=50, skip=0, db=db)["items"][0]
+    home = dashboard_service.build(db, include_activity=True)["activity"]["items"][0]
+    assert page.keys() == home.keys() and page["details"] == home["details"]
+
+
+def test_performance_and_activity_never_leak_birth_dates(db, two_teams):
+    a, b = two_teams[0], two_teams[1]
+    game(db, a, b, datetime(2019, 12, 20), "FINISHED", home_score=80, away_score=70)
+    audit_service.record(db, {"sub": "x", "email": "boss@x.com"}, "team.create", "team", 1, details={"name": "Halcones"})
+    blob = json.dumps(dashboard_service.build(db, include_attention=True, include_activity=True)["performance"], default=str).lower()
+    assert "birth" not in blob

@@ -87,6 +87,14 @@ def query_activity(
     return total, rows
 
 
+def entry_to_dict(e: AuditLog, labels: dict) -> dict:
+    return {
+        "id_audit": e.id_audit, "at": e.at, "user_email": e.user_email, "user_id": e.user_id,
+        "action": e.action, "entity": e.entity, "entity_id": e.entity_id, "game_id": e.game_id,
+        "game_label": labels.get(e.game_id), "details": e.details,
+    }
+
+
 def game_labels(db: Session, game_ids) -> dict:
     """{id_game: "Local vs Visitante"} para los partidos que aún existen."""
     ids = {i for i in game_ids if i}

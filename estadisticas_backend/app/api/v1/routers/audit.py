@@ -46,14 +46,7 @@ def activity(
     labels = audit_service.game_labels(db, [e.game_id for e in rows])
     return {
         "total": total,
-        "items": [
-            {
-                "id_audit": e.id_audit, "at": e.at, "user_email": e.user_email, "user_id": e.user_id,
-                "action": e.action, "entity": e.entity, "entity_id": e.entity_id, "game_id": e.game_id,
-                "game_label": labels.get(e.game_id), "details": e.details,
-            }
-            for e in rows
-        ],
+        "items": [audit_service.entry_to_dict(e, labels) for e in rows],
         "users": audit_service.distinct_users(db),
         "groups": list(audit_service.ACTION_GROUPS),
     }

@@ -5,7 +5,7 @@ Solo lectura y sin tablas nuevas. Las "alertas" solo se calculan para administra
 equipos, torneos ni partidos atrasados, así que no necesita verlas).
 """
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -15,7 +15,7 @@ from app.models.games import Game
 from app.models.players import Player
 from app.models.teams import Team
 from app.models.tournaments import Tournament, TournamentPhase
-from app.services import scheduling_service, standings_service
+from app.services import audit_service, public_service, scheduling_service, standings_service
 from app.services.public_service import _game_header
 from app.services.team_brief import team_brief
 
@@ -24,6 +24,9 @@ LIST_LIMIT = 20         # tope de elementos por alerta: el detalle completo est�
 RECENT_LIMIT = 5        # últimos resultados en el home
 TOURNAMENT_LIMIT = 4    # torneos activos en el home
 TOP_STANDINGS = 3       # posiciones que se muestran por torneo
+WEEKS = 8               # semanas del gráfico de actividad
+LEADERS_SHOWN = 3       # líderes por categoría en el home
+ACTIVITY_LIMIT = 6      # movimientos recientes en el home (el supremo ve todo en Actividad)
 
 
 def _games(db: Session):
@@ -176,6 +179,47 @@ def _tournament_cards(db: Session) -> list[dict]:
     return cards
 
 
+def _played_games(db: Session):
+    """Partidos terminados que cuentan para las cifras: los W.O. (20-0) no son baloncesto jugado."""
+    return db.query(Game).filter(Game.status == GameStatus.FINISHED.value, Game.is_forfeit.is_(False))
+
+
+def _combined(game: Game) -> int:
+    return (game.home_score or 0) + (game.away_score or 0)
+
+
+def _totals(db: Session) -> dict:
+    games = _played_games(db).options(joinedload(Game.home_team), joinedload(Game.away_team)).all()
+    total = sum(_combined(g) for g in games)
+    top = max(games, key=_combined, default=None)
+    return {
+        "games_played": len(games),
+        "total_points": total,
+        "average_points": round(total / len(games), 1) if games else 0.0,
+        "highest_scoring": {**_game_header(top), "total": _combined(top)} if top and _combined(top) > 0 else None,
+    }
+
+
+def _weekly(db: Session) -> list[dict]:
+    """Partidos terminados y puntos de las últimas `WEEKS` semanas (de lunes a domingo, hora de Colombia), con ceros
+    en las semanas sin actividad para que el gráfico no tenga huecos."""
+    today = scheduling_service.now_local().date()
+    first = today - timedelta(days=today.weekday()) - timedelta(weeks=WEEKS - 1)
+    buckets = {first + timedelta(weeks=i): {"games": 0, "points": 0} for i in range(WEEKS)}
+    for g in _played_games(db).filter(Game.date >= datetime.combine(first, time.min)).all():
+        monday = g.date.date() - timedelta(days=g.date.weekday())
+        if monday in buckets:
+            buckets[monday]["games"] += 1
+            buckets[monday]["points"] += _combined(g)
+    return [{"week_start": d.isoformat(), **v} for d, v in buckets.items()]
+
+
+def _activity(db: Session) -> dict:
+    total, rows = audit_service.query_activity(db, limit=ACTIVITY_LIMIT)
+    labels = audit_service.game_labels(db, [e.game_id for e in rows])
+    return {"total": total, "items": [audit_service.entry_to_dict(e, labels) for e in rows]}
+
+
 def attention(db: Session) -> dict:
     small, dupes = _roster_alerts(db)
     items = {
@@ -189,7 +233,7 @@ def attention(db: Session) -> dict:
     return items
 
 
-def build(db: Session, include_attention: bool = False) -> dict:
+def build(db: Session, include_attention: bool = False, include_activity: bool = False) -> dict:
     live = _games(db).filter(Game.status == GameStatus.IN_PROGRESS.value).order_by(Game.date.desc()).limit(10).all()
     current = scheduling_service.now_local()
     grace = timedelta(minutes=scheduling_service.OVERDUE_GRACE_MINUTES)
@@ -208,5 +252,7 @@ def build(db: Session, include_attention: bool = False) -> dict:
             "games": db.query(func.count(Game.id_game)).scalar() or 0,
             "tournaments": db.query(func.count(Tournament.id_tournament)).scalar() or 0,
         },
+        "performance": {"totals": _totals(db), "weekly": _weekly(db), "leaders": public_service.leaders(db, LEADERS_SHOWN)},
         "attention": attention(db) if include_attention else None,
+        "activity": _activity(db) if include_activity else None,
     }
