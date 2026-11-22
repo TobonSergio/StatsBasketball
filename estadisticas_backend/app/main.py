@@ -18,6 +18,7 @@ from app.api.v1.routers import stats
 from app.api.v1.routers import tournaments
 from app.api.v1.routers import audit
 from app.api.v1.routers import public
+from app.api.v1.routers import media
 from app.core.auth import AUTH_REQUIRED
 from app.core.permissions import authorize
 
@@ -89,6 +90,7 @@ app.include_router(events.router, dependencies=_protected)
 app.include_router(stats.router, dependencies=_protected)
 app.include_router(tournaments.router, dependencies=_protected)
 app.include_router(audit.router, dependencies=_protected)
+app.include_router(media.router, dependencies=_protected)
 
 # Vista pública de espectadores: SIN autenticación, solo lectura de datos deportivos
 app.include_router(public.router)

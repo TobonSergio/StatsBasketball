@@ -93,6 +93,25 @@ def _request(method: str, endpoint: str, key: str, body: Optional[bytes], conten
         raise
 
 
+def status() -> dict:
+    """
+    Diagnóstico para la interfaz: ¿está configurado el almacenamiento y el bucket responde con esta clave?
+    (GET del bucket con la clave de servidor; no sube ni cambia nada).
+    """
+    bucket = _bucket()
+    try:
+        url, key = _config()
+    except StorageNotConfigured:
+        return {"configured": False, "ok": False, "bucket": bucket,
+                "detail": "Falta SUPABASE_SERVICE_ROLE_KEY (o SUPABASE_URL) en el servidor"}
+    try:
+        _request("GET", f"{url}/storage/v1/bucket/{bucket}", key, None, None)
+    except StorageError as exc:
+        reason = {404: f"El bucket '{bucket}' no existe", 401: "La clave del servidor no es válida", 403: "La clave del servidor no es válida"}
+        return {"configured": True, "ok": False, "bucket": bucket, "detail": reason.get(exc.status, str(exc))}
+    return {"configured": True, "ok": True, "bucket": bucket, "detail": None}
+
+
 def upload(path: str, data: bytes, content_type: str) -> str:
     """Sube (o reemplaza) un objeto y devuelve su URL pública."""
     url, key = _config()
