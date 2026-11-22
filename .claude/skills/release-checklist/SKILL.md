@@ -17,7 +17,7 @@ description: Lista de verificación previa a desplegar StatsBasketball (Render +
 
 ## Variables
 - [ ] **Render**: `DATABASE_URL`, `ENVIRONMENT=production`, `ALLOWED_ORIGINS` (URL de Vercel), `SUPABASE_URL`,
-      `SUPABASE_JWT_SECRET` (si HS256), `DEFAULT_ROLE`. `AUTH_REQUIRED` NO debe ser `false`.
+      `SUPABASE_JWT_SECRET` (si HS256), `DEFAULT_ROLE`, `SUPABASE_SERVICE_ROLE_KEY` (escudos y fotos; secreta) y el bucket público `team-assets` creado en Supabase Storage. `AUTH_REQUIRED` NO debe ser `false`.
 - [ ] **Vercel**: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 - [ ] GitHub: variable de repositorio `BACKEND_URL` para el keep-alive.
 

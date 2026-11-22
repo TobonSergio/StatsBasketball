@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import get_db
 from app.schemas.teams import TeamCreate, TeamUpdate, TeamResponse
-from app.services import teams_service
+from app.core.auth import get_current_user
+from app.services import audit_service, media_service, teams_service
 
 router = APIRouter(
     prefix="/teams",
@@ -81,3 +83,32 @@ def delete_team(team_id: int, db: Session = Depends(get_db)):
             detail="Team not found"
         )
 
+
+
+# 🔹 Escudo del equipo (cuerpo binario PNG/JPG/WebP, máx. 1 MB; el navegador ya lo recorta a 256 px)
+@router.put("/{team_id}/logo", response_model=TeamResponse)
+async def upload_team_logo(
+    team_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    data = await media_service.read_image_body(request)
+    team = await run_in_threadpool(teams_service.set_logo, db, team_id, data)
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    audit_service.record(db, user, "team.logo", "team", team_id, details={"bytes": len(data)})
+    return team
+
+
+@router.delete("/{team_id}/logo", response_model=TeamResponse)
+async def delete_team_logo(
+    team_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    team = await run_in_threadpool(teams_service.remove_logo, db, team_id)
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    audit_service.record(db, user, "team.logo_remove", "team", team_id)
+    return team

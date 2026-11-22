@@ -103,6 +103,8 @@ Frontend: ver el README de `StastBasketBallFrontend`.
 | `DEFAULT_ROLE` | no | Rol de usuarios sin rol (`admin` por defecto) |
 | `AUTH_REQUIRED` | no | `false` solo en desarrollo |
 | `SQL_ECHO` | no | `true` imprime el SQL |
+| `SUPABASE_SERVICE_ROLE_KEY` | para escudos/fotos | Clave `service_role` de Supabase (**secreta**, solo en el servidor). Sin ella la subida responde 503 |
+| `STORAGE_BUCKET` | no | Bucket público de Supabase Storage para escudos y fotos (`team-assets` por defecto) |
 | `MIN_REST_MINUTES` | no | Descanso mínimo entre partidos de un mismo equipo, en minutos (180 por defecto) |
 | `EARLY_START_TOLERANCE_MINUTES` | no | Antelación (min) a partir de la cual iniciar un partido pide confirmación y mueve su fecha a ahora (15 por defecto) |
 | `OVERDUE_GRACE_MINUTES` | no | Minutos tras la hora programada para marcar un partido como atrasado (30 por defecto) |
@@ -151,6 +153,7 @@ erDiagram
 | `POST /tournaments/{id}/phases/{fase}/generate` | admin | Genera el calendario de liga o la llave de playoffs de la fase |
 | `POST /games/{id}/timeouts` · `DELETE /games/{id}/timeouts/{tid}` | scorer | Tiempo muerto (FIBA: 2 en la 1.ª mitad, 3 en la 2.ª, 1 por prórroga); pausa el reloj |
 | `GET /events/game/{id}` | viewer | Bitácora jugada a jugada |
+| `PUT/DELETE /teams/{id}/logo` · `PUT/DELETE /players/{id}/photo` | admin | Escudo/foto: cuerpo binario PNG, JPG o WebP (máx. 1 MB; el navegador la reduce a 256 px). Se guarda en Supabase Storage |
 | `POST /games/{id}/cancel` | admin | Cancela un amistoso programado que no se jugará (los de torneo no se cancelan) |
 | `POST /games/{id}/forfeit` | admin | W.O.: el rival gana 20-0, el ausente suma 0 puntos |
 | `GET /audit/?game_id=` | admin | Historial de acciones |
