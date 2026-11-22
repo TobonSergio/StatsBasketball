@@ -312,3 +312,19 @@ def test_live_players_carry_the_full_box_score_line(db, live_game):
     assert (home["three_made"], home["three_attempts"]) == (1, 1)
     assert (home["ft_made"], home["ft_attempts"], home["turnovers"], home["minutes"]) == (0, 0, 0, 12.0)
     assert (rows[b.id_team]["fg_made"], rows[b.id_team]["fg_attempts"]) == (1, 2)
+# ── página de equipo: forma y líderes propios ───────────────────────────────────────────────────
+def test_team_has_recent_form_newest_first(db, world):
+    a = world[0]
+    form = public_service.get_team(db, a.id_team)["form"]
+    assert [f["result"] for f in form] == ["W", "W"]
+    assert form[0]["scored"] > form[0]["received"] and form[0]["rival"] == "Bravo"
+
+
+def test_team_leaders_only_include_its_own_players(db, world):
+    a, b = world[0], world[1]
+    mine = public_service.get_team(db, a.id_team)["leaders"]
+    assert mine["points"][0]["name"] == "A0" and mine["points"][0]["average"] == 14.0
+    assert mine["blocks"] == []                       # el único taponador es de Bravo
+    theirs = public_service.get_team(db, b.id_team)["leaders"]
+    assert theirs["blocks"][0]["name"] == "B0" and theirs["points"][0]["name"] == "B0"
+    assert public_service.leaders(db)["blocks"][0]["name"] == "B0"        # el global no cambia
