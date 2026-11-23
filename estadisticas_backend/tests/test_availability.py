@@ -86,3 +86,18 @@ def test_generated_calendar_conflicting_with_existing_game_is_rejected(db, teams
         scheduling_service.generate_round_robin(db, t.id_tournament, t.phases[0].id_phase)
     assert e.value.status_code == 409
     assert db.query(Game).count() == 1
+
+
+def test_demo_mode_skips_rest_and_daily_limit(db, teams):
+    from app.services import settings_service
+
+    a, b, c, d = teams
+    assert settings_service.is_pro_mode(db)  # por defecto el modo profesional está activo
+    _friendly(db, a, b, datetime(2026, 12, 2, 16, 0))
+    settings_service.set_pro_mode(db, False)
+    assert not settings_service.is_pro_mode(db)
+    _friendly(db, a, c, datetime(2026, 12, 2, 16, 30))  # 30 min después: permitido en modo demo
+    _friendly(db, a, d, datetime(2026, 12, 2, 17, 0))   # tercer partido del día: permitido
+    settings_service.set_pro_mode(db, True)
+    with pytest.raises(HTTPException):
+        _friendly(db, b, c, datetime(2026, 12, 2, 16, 15))  # vuelve la regla

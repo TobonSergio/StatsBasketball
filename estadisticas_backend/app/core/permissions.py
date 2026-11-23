@@ -44,7 +44,7 @@ _SCORER_RULES = [
     ("POST", r"^/games/\d+/timeouts$"),
     ("DELETE", r"^/games/\d+/timeouts/\d+$"),
 ]
-_ADMIN_ONLY_READ = re.compile(r"^/(audit|users)")
+_ADMIN_ONLY_READ = re.compile(r"^/(audit|users|settings)")
 
 
 def is_super_admin(claims: dict) -> bool:

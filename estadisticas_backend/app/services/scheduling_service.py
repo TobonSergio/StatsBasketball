@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.enums import GameStatus, PhaseType, normalize_phase_type
 from app.models.games import Game
 from app.models.teams import Team
-from app.services import rosters_service
+from app.services import rosters_service, settings_service
 from app.models.tournaments import Tournament, TournamentPhase, TournamentStanding
 
 DEFAULT_LOCATION = "Por definir"
@@ -83,6 +83,8 @@ def find_conflict(
     ignore_game_ids: Iterable[int] = (),
 ) -> Optional[str]:
     """Mensaje del primer conflicto de agenda de alguno de los equipos en `when`, o None si todo bien."""
+    if not settings_service.is_pro_mode(db):  # modo demo: el administrador supremo apagó el descanso y el máximo diario
+        return None
     when = to_local_naive(when)
     team_ids = list(dict.fromkeys(team_ids))
     skip = set(ignore_game_ids) | ({exclude_game_id} if exclude_game_id else set())
