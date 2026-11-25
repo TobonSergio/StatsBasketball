@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.games import Game
 from app.core.clock import live_remaining, utcnow
-from app.core.enums import GameStatus, normalize_game_status
+from app.core.enums import DEFAULT_NUM_QUARTERS, GameStatus, normalize_game_status
 from app.models.tournaments import TournamentPhase
 from app.services.team_brief import team_brief
 from app.models.timeouts import GameTimeout
@@ -454,12 +454,19 @@ def get_live_game_status(db: Session, game_id: int):
     if not game:
         return None
 
+    # FIBA: las faltas de equipo de la prórroga se acumulan con las del último cuarto
+    last_quarter = game.num_quarters or DEFAULT_NUM_QUARTERS
+    if game.current_quarter > last_quarter:
+        in_period = Event.quarter >= last_quarter
+    else:
+        in_period = Event.quarter == game.current_quarter
+
     # 2. Contamos faltas del equipo Local en el cuarto actual
     home_fouls = db.query(Event).join(GamePlayer).filter(
         GamePlayer.fk_id_game == game_id,
         GamePlayer.fk_id_team == game.fk_home_id_team,
         Event.event_type.in_(TEAM_FOUL_EVENTS),
-        Event.quarter == game.current_quarter
+        in_period
     ).count()
 
     # 3. Contamos faltas del equipo Visitante en el cuarto actual
@@ -467,7 +474,7 @@ def get_live_game_status(db: Session, game_id: int):
         GamePlayer.fk_id_game == game_id,
         GamePlayer.fk_id_team == game.fk_away_id_team,
         Event.event_type.in_(TEAM_FOUL_EVENTS),
-        Event.quarter == game.current_quarter
+        in_period
     ).count()
 
     # 4. Construimos la respuesta "en vivo"

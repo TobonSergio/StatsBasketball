@@ -167,3 +167,22 @@ def test_timeouts_need_a_game_in_progress_and_show_in_live_status(db, two_teams)
         timeouts_service.call_timeout(db, out.id_game, a.id_team)
     assert e.value.status_code == 409
     assert games_service.get_live_game_status(db, out.id_game)["timeouts"]["home"] == {"used": 0, "allowed": 2}
+
+
+def test_overtime_team_fouls_accumulate_with_the_last_quarter(db, live):
+    game, home, _ = live
+    _ev(db, home, "foul")                    # 1.er cuarto: no arrastra
+    game.current_quarter = 4
+    db.commit()
+    for _ in range(3):
+        _ev(db, home, "foul")
+    game.current_quarter = 5                 # prórroga
+    db.commit()
+    _ev(db, home, "foul")
+    fouls = games_service.get_live_game_status(db, game.id_game)["fouls"]
+    assert fouls["home"] == 4
+    game.current_quarter = 6                 # segunda prórroga
+    db.commit()
+    _ev(db, home, "foul")
+    fouls = games_service.get_live_game_status(db, game.id_game)["fouls"]
+    assert fouls["home"] == 5 and fouls["home_bonus"] is True
