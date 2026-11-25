@@ -8,5 +8,6 @@ from .events import Event
 from .audit import AuditLog
 from .timeouts import GameTimeout
 from .app_settings import AppSetting
+from .foul_plays import FoulPlay
 
 from .tournaments import Tournament, TournamentPhase, TournamentGroup, TournamentStanding

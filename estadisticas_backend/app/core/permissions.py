@@ -43,6 +43,8 @@ _SCORER_RULES = [
     ("PUT", r"^/games/\d+/possession$"),
     ("POST", r"^/games/\d+/timeouts$"),
     ("DELETE", r"^/games/\d+/timeouts/\d+$"),
+    ("PUT", r"^/games/\d+/foul-plays/[0-9a-fA-F-]{36}$"),
+    ("DELETE", r"^/games/\d+/foul-plays/[0-9a-fA-F-]{36}$"),
 ]
 _ADMIN_ONLY_READ = re.compile(r"^/(audit|users|settings)")
 

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.events import Event
+from app.models.foul_plays import FoulPlay
 from app.models.games_players import GamePlayer
 from app.models.players_stats import PlayerStats
 from app.models.games import Game
@@ -10,7 +11,7 @@ from app.schemas.events import EventCreate
 from app.core.enums import GameStatus
 
 
-def _assert_game_open(game: Game) -> None:
+def assert_game_open(game: Game) -> None:
     """Solo se anotan (o deshacen) acciones en un partido en juego: así el marcador y la tabla no se desincronizan."""
     if game.status == GameStatus.IN_PROGRESS.value:
         return
@@ -46,13 +47,14 @@ def create_event(db: Session, event_data: EventCreate) -> Event:
     game = db.query(Game).filter(Game.id_game == game_player.fk_id_game).first()
     if not game:
         raise HTTPException(status_code=404, detail="Juego no encontrado.")
-    _assert_game_open(game)
+    assert_game_open(game)
     # 2️⃣ Crear el registro del evento
     db_event = Event(
         event_type=event_data.event_type,
         fk_id_game_player_events=event_data.fk_id_game_player_events,
         quarter=game.current_quarter, # <--- AQUÍ: Usamos el dato de la DB, no del request
         game_time_seconds=event_data.game_time_seconds,
+        play_id=event_data.play_id,
         timestamp=event_data.timestamp or datetime.utcnow() 
     )
     db.add(db_event)
@@ -142,14 +144,26 @@ def delete_event(db: Session, event_id: int) -> bool:
     if not db_event:
         return False
 
+    owner = db.query(GamePlayer).filter(GamePlayer.id_game_player == db_event.fk_id_game_player_events).first()
+    owner_game = db.query(Game).filter(Game.id_game == owner.fk_id_game).first() if owner else None
+    if owner_game:
+        assert_game_open(owner_game)
+
+    # Sin la falta ya no hay tiros libres que recuperar
+    if db_event.play_id and db_event.event_type == "foul":
+        db.query(FoulPlay).filter(FoulPlay.play_id == db_event.play_id).delete()
+
+    revert_event(db, db_event)
+    db.commit()
+    return True
+
+
+def revert_event(db: Session, db_event: Event) -> None:
+    """Resta el evento de estadísticas y marcador y lo borra. No hace commit."""
     # 2. Identificar qué hay que "deshacer"
     etype = db_event.event_type
     gp_id = db_event.fk_id_game_player_events
-    owner = db.query(GamePlayer).filter(GamePlayer.id_game_player == gp_id).first()
-    owner_game = db.query(Game).filter(Game.id_game == owner.fk_id_game).first() if owner else None
-    if owner_game:
-        _assert_game_open(owner_game)
-    
+
     # 3. Restar de las estadísticas individuales (PlayerStats)
     stats = db.query(PlayerStats).filter(PlayerStats.fk_id_game_player == gp_id).first()
     points_to_subtract = 0
@@ -212,8 +226,6 @@ def delete_event(db: Session, event_id: int) -> bool:
 
     # 5. Finalmente, borrar el evento
     db.delete(db_event)
-    db.commit()
-    return True
 
 
 def list_by_game(db: Session, game_id: int, limit: int = 300) -> list[dict]:
@@ -232,7 +244,7 @@ def list_by_game(db: Session, game_id: int, limit: int = 300) -> list[dict]:
     return [
         {
             "id_event": ev.id_event, "event_type": ev.event_type, "quarter": ev.quarter,
-            "game_time_seconds": ev.game_time_seconds, "timestamp": ev.timestamp,
+            "game_time_seconds": ev.game_time_seconds, "timestamp": ev.timestamp, "play_id": ev.play_id,
             "id_game_player": gp.id_game_player, "team_id": gp.fk_id_team,
             "player_name": pl.name, "player_number": pl.number,
         }

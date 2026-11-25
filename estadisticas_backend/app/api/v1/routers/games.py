@@ -5,7 +5,10 @@ from app.core.database import get_db
 from app.schemas.games import PossessionRequest, StartRequest, CancelRequest, RescheduleRequest, GameCreate, GameUpdate, GameResponse, GameWithPlayersCreate, GameWithPlayersResponse, SubstitutionRequest, TimerUpdate
 from app.models.games_players import GamePlayer
 from app.core.auth import get_current_user
-from app.services import audit_service, export_service, games_service, rosters_service, timeouts_service
+from app.schemas.foul_plays import FoulPlayUpdate
+from app.services import (
+    audit_service, export_service, foul_plays_service, games_service, rosters_service, timeouts_service,
+)
 from app.schemas.games_players import GamePlayerResponse
 
 
@@ -401,3 +404,27 @@ async def get_game_players(game_id: int, db: Session = Depends(get_db)):
     )
     return players
 
+
+@router.get("/{game_id}/foul-plays/pending")
+def pending_foul_play(game_id: int, db: Session = Depends(get_db)):
+    """Tiros libres sin lanzar del periodo actual (o null)."""
+    return foul_plays_service.pending(db, game_id)
+
+
+@router.put("/{game_id}/foul-plays/{play_id}", status_code=204)
+def save_foul_play(game_id: int, play_id: str, data: FoulPlayUpdate, db: Session = Depends(get_db)):
+    """Libres concedidos por una falta; `closed` indica que ya no hay que recuperarlos."""
+    foul_plays_service.save(db, game_id, play_id, data)
+
+
+@router.delete("/{game_id}/foul-plays/{play_id}", status_code=204)
+def undo_foul_play(
+    game_id: int,
+    play_id: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Deshace la jugada completa: falta, canasta, libres y rebote."""
+    types = foul_plays_service.undo(db, game_id, play_id)
+    audit_service.record(db, user, "event.undo_play", "game", game_id, game_id=game_id,
+                         details={"play_id": play_id, "types": types})

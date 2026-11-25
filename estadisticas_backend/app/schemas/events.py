@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 from enum import Enum
@@ -28,6 +28,7 @@ class EventBase(BaseModel):
 
 class EventCreate(EventBase):
     timestamp: Optional[datetime] = None
+    play_id: Optional[str] = Field(default=None, min_length=36, max_length=36)
 
 class EventResponse(BaseModel): # Cambiamos a BaseModel para mapear bien los campos de salida
     id_event: int
