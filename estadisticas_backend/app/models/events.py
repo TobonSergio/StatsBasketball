@@ -29,5 +29,8 @@ class Event(Base):
         nullable=False
     )
 
+    # Agrupa los eventos de una misma jugada de falta (NULL en el resto)
+    play_id = Column(String(36), nullable=True, index=True)
+
     # Relación
     game_player = relationship("GamePlayer", back_populates="events")

@@ -3,12 +3,14 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 
+from app.models.foul_plays import FoulPlay
 from app.models.games import Game
 from app.models.games_players import GamePlayer
 from app.models.players_stats import PlayerStats
 from app.schemas.events import EventCreate
+from app.schemas.foul_plays import FoulPlayUpdate
 from app.schemas.games import GameWithPlayersCreate
-from app.services import events_service, games_service, scheduling_service, timeouts_service
+from app.services import events_service, foul_plays_service, games_service, scheduling_service, timeouts_service
 
 NOW = datetime(2026, 12, 10, 12, 0)
 
@@ -186,3 +188,77 @@ def test_overtime_team_fouls_accumulate_with_the_last_quarter(db, live):
     _ev(db, home, "foul")
     fouls = games_service.get_live_game_status(db, game.id_game)["fouls"]
     assert fouls["home"] == 5 and fouls["home_bonus"] is True
+
+
+# ── jugadas de falta ───────────────────────────────────────────────────────────────────────
+PLAY = "00000000-0000-4000-8000-000000000001"
+
+
+def _play_ev(db, gp, kind):
+    return events_service.create_event(db, EventCreate(
+        event_type=kind, fk_id_game_player_events=gp.id_game_player, game_time_seconds=300, play_id=PLAY))
+
+
+def _save(db, game, shooter, free_throws=2, closed=False):
+    return foul_plays_service.save(db, game.id_game, PLAY, FoulPlayUpdate(
+        shooter_game_player_id=shooter.id_game_player, free_throws=free_throws, closed=closed))
+
+
+def test_pending_free_throws_survive_until_all_are_taken_or_closed(db, live):
+    game, home, away = live
+    _play_ev(db, home, "foul")
+    _save(db, game, away)
+    _play_ev(db, away, "free_made")
+    p = foul_plays_service.pending(db, game.id_game)
+    assert (p["fouler_game_player_id"], p["shooter_game_player_id"]) == (home.id_game_player, away.id_game_player)
+    assert (p["free_throws"], p["shots"]) == (2, [True])
+    _save(db, game, away, closed=True)
+    assert foul_plays_service.pending(db, game.id_game) is None
+    _save(db, game, away)
+    _play_ev(db, away, "free_missed")
+    assert foul_plays_service.pending(db, game.id_game) is None
+
+
+def test_pending_free_throws_are_dropped_in_the_next_period(db, live):
+    game, home, away = live
+    _play_ev(db, home, "foul")
+    _save(db, game, away)
+    game.current_quarter += 1
+    db.commit()
+    assert foul_plays_service.pending(db, game.id_game) is None
+
+
+def test_foul_play_requires_the_foul_and_an_opposing_shooter(db, live):
+    game, home, away = live
+    with pytest.raises(HTTPException) as missing:
+        _save(db, game, away)
+    assert missing.value.status_code == 404
+    _play_ev(db, home, "foul")
+    with pytest.raises(HTTPException) as same_team:
+        _save(db, game, home)
+    assert same_team.value.status_code == 422
+
+
+def test_undoing_a_play_restores_score_and_stats_but_keeps_other_events(db, live):
+    game, home, away = live
+    _ev(db, away, "two_made")
+    _play_ev(db, home, "foul")
+    _play_ev(db, away, "two_made")
+    _save(db, game, away, free_throws=1)
+    _play_ev(db, away, "free_made")
+    assert foul_plays_service.undo(db, game.id_game, PLAY) == ["foul", "two_made", "free_made"]
+    db.refresh(game)
+    assert (game.home_score, game.away_score) == (0, 2)
+    s = _stats(db, away)
+    assert (s.points_two_made, s.free_throw_made, s.free_throw_attempts) == (1, 0, 0)
+    assert _stats(db, home).fouls == 0
+    assert db.get(FoulPlay, PLAY) is None
+    assert [e["event_type"] for e in events_service.list_by_game(db, game.id_game)] == ["two_made"]
+
+
+def test_undoing_only_the_foul_forgets_its_free_throws(db, live):
+    game, home, away = live
+    foul = _play_ev(db, home, "foul")
+    _save(db, game, away)
+    events_service.delete_event(db, foul.id_event)
+    assert db.get(FoulPlay, PLAY) is None
